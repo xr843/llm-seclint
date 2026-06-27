@@ -24,6 +24,7 @@ class Finding:
     fix_suggestion: str = ""
     cwe_id: str = ""
     owasp_llm: str = ""
+    taint_source: str = ""
     metadata: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, object]:
@@ -41,4 +42,5 @@ class Finding:
             "fix_suggestion": self.fix_suggestion,
             "cwe_id": self.cwe_id,
             "owasp_llm": self.owasp_llm,
+            "taint_source": self.taint_source,
         }
