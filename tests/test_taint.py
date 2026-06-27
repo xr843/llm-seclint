@@ -102,6 +102,51 @@ def test_local_and_unrelated_dynamic_not_tainted() -> None:
         assert _analyze(code) is None
 
 
+def test_kill_inside_compound_statement() -> None:
+    # Reassignment to a clean value inside an if/for/try/with body must clear
+    # taint (regression: single-pass must respect in-block kills).
+    for header in ["if cond:", "for i in items:", "while cond:", "with ctx():"]:
+        code = (
+            "r = litellm.completion(model='m')\n"
+            "x = r.content\n"
+            f"{header}\n"
+            "    x = 'safe'\n"
+            "    use(x)\n"
+        )
+        assert _analyze(code) is None, header
+
+
+def test_sink_inside_compound_still_confirmed() -> None:
+    # The kill fix must not silence a genuine flow inside a compound body.
+    code = (
+        "r = litellm.completion(model='m')\n"
+        "x = r.content\n"
+        "if cond:\n"
+        "    use(x)\n"
+    )
+    assert _analyze(code) == LLM
+
+
+def test_non_assign_rebinds_kill_taint() -> None:
+    base = "x = litellm.completion(model='m').content\n"
+    for rebind in [
+        "x: str = 'safe'",          # AnnAssign
+        "(x := 'safe')",            # walrus
+        "for x in clean_list():\n    pass",  # for-target
+    ]:
+        code = base + rebind + "\nuse(x)\n"
+        assert _analyze(code) is None, rebind
+
+
+def test_with_as_target_not_tainted() -> None:
+    code = (
+        "x = litellm.completion(model='m').content\n"
+        "with open('f') as x:\n"
+        "    use(x)\n"
+    )
+    assert _analyze(code) is None
+
+
 def test_taint_is_scoped_per_function() -> None:
     # taint in one function must not leak into another.
     code = (

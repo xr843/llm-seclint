@@ -126,32 +126,93 @@ def _iter_stmts(body: list[ast.stmt]) -> Iterator[ast.stmt]:
 
 
 def _used_exprs(stmt: ast.stmt) -> Iterator[ast.expr]:
-    """Yield expression nodes referenced by a statement, excluding the names
-    being assigned to (so the LHS of ``x = ...`` is not treated as a use)."""
-    targets: set[int] = set()
+    """Yield expression nodes belonging to this statement's own header/value,
+    NOT its nested statement bodies.
+
+    Nested bodies (``if``/``for``/``while``/``with``/``try`` bodies and except
+    handlers) are visited separately, in source order, by ``_iter_stmts``. If we
+    descended into them here we would taint their expressions using the variable
+    state from *before* the body runs — e.g. flagging the ``x`` in
+    ``if c: x = 'safe'; eval(x)`` as still LLM-tainted. Assignment targets are
+    excluded so the LHS of ``x = ...`` is not treated as a use.
+    """
+    excluded: set[int] = set()
+    for tgt in getattr(stmt, "targets", []) or []:
+        for node in ast.walk(tgt):
+            excluded.add(id(node))
+
+    def _walk(node: ast.AST) -> Iterator[ast.expr]:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.stmt, ast.ExceptHandler)):
+                continue  # nested body — visited separately in source order
+            if isinstance(child, ast.expr):
+                if id(child) not in excluded:
+                    yield child
+                yield from _walk(child)
+            else:
+                # wrapper nodes (withitem, comprehension, arguments, ...)
+                yield from _walk(child)
+
+    yield from _walk(stmt)
+
+
+def _bind_target(state: _ScopeTaint, target: ast.expr, src: str | None) -> None:
+    """Bind a name target to a taint source, or clear it when ``src`` is falsy.
+
+    Tuple/list unpacking targets are conservatively cleared (element-wise taint
+    is not tracked). Attribute/subscript targets are ignored (not simple vars)."""
+    if isinstance(target, ast.Name):
+        if src:
+            state.vars[target.id] = src
+        else:
+            state.vars.pop(target.id, None)
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            _bind_target(state, elt, None)
+
+
+def _apply_bindings(state: _ScopeTaint, stmt: ast.stmt) -> None:
+    """Update variable taint for any name(s) this statement rebinds.
+
+    Every rebinding form must clear stale taint (so a later clean reassignment
+    does not leave a confirmed flow), re-adding taint only when the bound value
+    is itself tainted."""
     if isinstance(stmt, ast.Assign):
+        src = state.taint_of(stmt.value)
         for tgt in stmt.targets:
-            targets.add(id(tgt))
-    for node in ast.walk(stmt):
-        if isinstance(node, ast.expr) and id(node) not in targets:
-            yield node
+            _bind_target(state, tgt, src)
+    elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+        _bind_target(state, stmt.target, state.taint_of(stmt.value))
+    elif isinstance(stmt, ast.AugAssign):
+        # x op= y : stays tainted if x already was or the rhs is tainted.
+        cur = (
+            state.vars.get(stmt.target.id)
+            if isinstance(stmt.target, ast.Name)
+            else None
+        )
+        _bind_target(state, stmt.target, cur or state.taint_of(stmt.value))
+    elif isinstance(stmt, (ast.For, ast.AsyncFor)):
+        # Loop variable is rebound each iteration; conservatively clear it.
+        _bind_target(state, stmt.target, None)
+    elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+        for item in stmt.items:
+            if item.optional_vars is not None:
+                _bind_target(state, item.optional_vars, None)
 
 
 def _run_scope(state: _ScopeTaint, body: list[ast.stmt]) -> None:
     for stmt in _iter_stmts(body):
-        # Mark phase: taint every used expression (assignment targets excluded),
-        # so sink arguments like the ``x`` in ``eval(x)`` get recorded.
-        for expr in _used_exprs(stmt):
+        # Mark phase: taint this statement's own used expressions (not nested
+        # bodies), so sink arguments like the ``x`` in ``eval(x)`` get recorded.
+        used = list(_used_exprs(stmt))
+        for expr in used:
             state.taint_of(expr)
-        # Update phase: a plain assignment mutates variable taint.
-        if isinstance(stmt, ast.Assign):
-            src = state.taint_of(stmt.value)
-            for tgt in stmt.targets:
-                if isinstance(tgt, ast.Name):
-                    if src:
-                        state.vars[tgt.id] = src
-                    else:
-                        state.vars.pop(tgt.id, None)
+        # Walrus assignments bind within an expression.
+        for expr in used:
+            if isinstance(expr, ast.NamedExpr):
+                _bind_target(state, expr.target, state.taint_of(expr.value))
+        # Update phase: statement-level rebindings mutate variable taint.
+        _apply_bindings(state, stmt)
 
 
 class TaintContext:
