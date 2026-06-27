@@ -86,14 +86,29 @@ class SsrfRule(Rule):
 
     @staticmethod
     def _session_vars(tree: ast.Module) -> set[str]:
-        """Collect variables assigned from an HTTP session/client constructor."""
-        names: set[str] = set()
+        """Collect variables assigned from an HTTP session/client constructor.
+
+        A name that is *also* assigned a non-session value anywhere is dropped:
+        collection is file-global, so without this a common name like ``client``
+        used as a session in one function and a redis/dict client in another
+        would mislabel the latter's ``.get(tainted)`` as SSRF. Precision-first:
+        we accept the rare false negative of a legitimately reused name."""
+        session_names: set[str] = set()
+        rebound: set[str] = set()
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and SsrfRule._is_session_ctor(node.value):
+            if isinstance(node, ast.Assign):
+                is_ctor = SsrfRule._is_session_ctor(node.value)
                 for target in node.targets:
                     if isinstance(target, ast.Name):
-                        names.add(target.id)
-        return names
+                        (session_names if is_ctor else rebound).add(target.id)
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and node.value is not None
+                and isinstance(node.target, ast.Name)
+                and not SsrfRule._is_session_ctor(node.value)
+            ):
+                rebound.add(node.target.id)
+        return session_names - rebound
 
     @staticmethod
     def _is_session_ctor(expr: ast.expr) -> bool:

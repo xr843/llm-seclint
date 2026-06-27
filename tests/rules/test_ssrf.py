@@ -100,3 +100,30 @@ class TestLs009SessionSinks:
     def test_urllib3_poolmanager_request(self) -> None:
         f = _scan("pool = urllib3.PoolManager()\n" + _USER + "pool.request('GET', url)\n")
         assert len(f) == 1
+
+
+class TestLs009SessionVarCollision:
+    """A name reused as a non-session object must not become an SSRF sink."""
+
+    def test_reassigned_to_dict_not_sink(self) -> None:
+        code = (
+            "s = requests.Session()\n"
+            "s = {}\n"
+            "u = request.args.get('x')\n"
+            "s.get(u)\n"
+        )
+        assert _scan(code) == []
+
+    def test_cross_function_name_collision_not_sink(self) -> None:
+        # `client` is an httpx session in one function and a redis client in
+        # another — its redis .get(key) must not be flagged as SSRF.
+        code = (
+            "def fetch(u):\n"
+            "    client = httpx.Client()\n"
+            "    return client.get(u)\n"
+            "def lookup():\n"
+            "    client = get_redis()\n"
+            "    key = request.args.get('k')\n"
+            "    return client.get(key)\n"
+        )
+        assert _scan(code) == []
