@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from llm_seclint.analyzers.taint import TaintContext
 from llm_seclint.core.finding import Finding
 from llm_seclint.core.severity import Severity
 from llm_seclint.rules.base import Rule
@@ -112,9 +113,12 @@ class LlmShellInjectionRule(Rule):
                         should_flag = self._is_dynamic(cmd_arg)
 
                     if should_flag:
+                        src = self._confirmed_source(cmd_arg, taint)
                         msg = f"Dynamic output passed to {func_display}"
                         if has_shell_true:
                             msg += " with shell=True"
+                        if src:
+                            msg += f" — confirmed {src.upper()}→sink dataflow"
                         findings.append(
                             self._make_finding(
                                 file_path,
@@ -126,6 +130,7 @@ class LlmShellInjectionRule(Rule):
                                     "Never pass LLM output directly to shell commands. "
                                     "Use an allowlist of permitted commands and validate input."
                                 ),
+                                taint_source=src,
                             )
                         )
             else:
@@ -133,17 +138,22 @@ class LlmShellInjectionRule(Rule):
                 if node.args:
                     cmd_arg = node.args[0]
                     if self._is_dynamic(cmd_arg):
+                        src = self._confirmed_source(cmd_arg, taint)
+                        msg = f"Dynamic output passed to {func_display}"
+                        if src:
+                            msg += f" — confirmed {src.upper()}→sink dataflow"
                         findings.append(
                             self._make_finding(
                                 file_path,
                                 node.lineno,
-                                f"Dynamic output passed to {func_display}",
+                                msg,
                                 source_lines,
                                 col=node.col_offset,
                                 fix_suggestion=(
                                     "Never pass LLM output to os.system/os.popen. "
                                     "Use subprocess with an argument list and validate input."
                                 ),
+                                taint_source=src,
                             )
                         )
 
@@ -165,6 +175,23 @@ class LlmShellInjectionRule(Rule):
             if node.func.id in _DANGEROUS_STANDALONE:
                 return f"{node.func.id}()", False
         return None
+
+    @staticmethod
+    def _confirmed_source(cmd_arg: ast.expr, taint: object | None) -> str:
+        """Return the taint source of the command argument (or of any argv
+        element for list/tuple forms), or '' when not taint-confirmed."""
+        if not isinstance(taint, TaintContext):
+            return ""
+        candidates = (
+            cmd_arg.elts
+            if isinstance(cmd_arg, (ast.List, ast.Tuple))
+            else [cmd_arg]
+        )
+        for node in candidates:
+            confirmed = taint.is_tainted(node)
+            if confirmed:
+                return confirmed
+        return ""
 
     @staticmethod
     def _argv_invokes_interpreter(node: ast.List | ast.Tuple) -> bool:

@@ -229,3 +229,47 @@ class TestCliAndBuildFileSkipping:
         code = 'subprocess.run(cmd, shell=True)'
         findings = run_rule_on_code(_rule(), code=code, file_path=Path("src/app/executor.py"))
         assert len(findings) == 1
+
+
+class TestLs004TaintConfirmation:
+    """Taint-confirmed LLM->shell flows are marked; plain dynamic unchanged."""
+
+    def test_confirmed_llm_to_shell(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = (
+            "r = litellm.completion(model='m')\n"
+            "cmd = r.content\n"
+            "subprocess.run(cmd, shell=True)\n"
+        )
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS004"][0]
+        assert f.taint_source == "llm"
+        assert "confirmed" in f.message.lower()
+
+    def test_confirmed_llm_in_argv_interpreter(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = (
+            "r = litellm.completion(model='m')\n"
+            "code = r.content\n"
+            "subprocess.run(['bash', '-c', code])\n"
+        )
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS004"][0]
+        assert f.taint_source == "llm"
+
+    def test_plain_dynamic_unchanged(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = "subprocess.run(cmd, shell=True)\n"
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS004"][0]
+        assert f.taint_source == ""
+        assert "confirmed" not in f.message.lower()
