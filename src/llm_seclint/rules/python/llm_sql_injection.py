@@ -22,13 +22,13 @@ class LlmSqlInjectionRule(Rule):
     rule_id = "LS003"
     rule_name = "llm-to-sql-injection"
     severity = Severity.CRITICAL
-    # Flags any dynamic f-string/concat SQL regardless of whether the value is
-    # LLM-derived, so it over-reports (and overlaps Bandit B608). Off by default;
-    # enable with --experimental.
-    stability = "experimental"
+    # Stable: reports only when an interpolated value is taint-confirmed to carry
+    # LLM/user input (graduated from experimental once the taint engine landed).
+    # Blanket dynamic-SQL detection regardless of source is left to Bandit (B608).
+    stability = "stable"
     description = (
-        "LLM output is concatenated into a SQL query string. "
-        "This allows SQL injection if the LLM output is attacker-influenced."
+        "LLM or user input is interpolated into a SQL query string. "
+        "This allows SQL injection when the value is attacker-influenced."
     )
     cwe_id = "CWE-89"
     owasp_llm = "LLM02: Insecure Output Handling"
@@ -52,75 +52,70 @@ class LlmSqlInjectionRule(Rule):
                 continue
 
             query_arg = node.args[0]
+            base_message = self._classify_query(query_arg)
+            if base_message is None:
+                continue
 
-            # Case 1: f-string with SQL keywords and dynamic values
-            if isinstance(query_arg, ast.JoinedStr):
-                if self._fstring_has_sql(query_arg) and self._fstring_has_variables(query_arg):
-                    findings.append(
-                        self._make_finding(
-                            file_path,
-                            node.lineno,
-                            "LLM/dynamic output interpolated into SQL query via f-string",
-                            source_lines,
-                            col=node.col_offset,
-                            fix_suggestion="Use parameterized queries: cursor.execute('SELECT ... WHERE x = ?', (value,))",
-                        )
-                    )
+            # Graduated to stable: only report when an interpolated value is
+            # taint-confirmed to carry LLM/user input. Blanket dynamic-SQL
+            # detection (regardless of source) is left to Bandit (B608).
+            src = self._confirmed_taint([query_arg], taint)
+            if not src:
+                continue
 
-            # Case 2: String concatenation with + operator
-            elif isinstance(query_arg, ast.BinOp) and isinstance(query_arg.op, ast.Add):
-                if self._binop_has_sql(query_arg):
-                    findings.append(
-                        self._make_finding(
-                            file_path,
-                            node.lineno,
-                            "Dynamic output concatenated into SQL query via + operator",
-                            source_lines,
-                            col=node.col_offset,
-                            fix_suggestion="Use parameterized queries instead of string concatenation",
-                        )
-                    )
-
-            # Case 3: .format() on a SQL string
-            elif (
-                isinstance(query_arg, ast.Call)
-                and isinstance(query_arg.func, ast.Attribute)
-                and query_arg.func.attr == "format"
-                and isinstance(query_arg.func.value, ast.Constant)
-                and isinstance(query_arg.func.value.value, str)
-                and self._str_has_sql(query_arg.func.value.value)
-            ):
-                findings.append(
-                    self._make_finding(
-                        file_path,
-                        node.lineno,
-                        "Dynamic output injected into SQL query via .format()",
-                        source_lines,
-                        col=node.col_offset,
-                        fix_suggestion="Use parameterized queries instead of .format()",
-                    )
+            findings.append(
+                self._make_finding(
+                    file_path,
+                    node.lineno,
+                    f"{base_message} — confirmed {src.upper()}→sink dataflow",
+                    source_lines,
+                    col=node.col_offset,
+                    fix_suggestion=(
+                        "Use parameterized queries: "
+                        "cursor.execute('SELECT ... WHERE x = ?', (value,))"
+                    ),
+                    taint_source=src,
                 )
-
-            # Case 4: %-formatting
-            elif (
-                isinstance(query_arg, ast.BinOp)
-                and isinstance(query_arg.op, ast.Mod)
-                and isinstance(query_arg.left, ast.Constant)
-                and isinstance(query_arg.left.value, str)
-                and self._str_has_sql(query_arg.left.value)
-            ):
-                findings.append(
-                    self._make_finding(
-                        file_path,
-                        node.lineno,
-                        "Dynamic output injected into SQL query via %-formatting",
-                        source_lines,
-                        col=node.col_offset,
-                        fix_suggestion="Use parameterized queries instead of %-formatting",
-                    )
-                )
+            )
 
         return findings
+
+    @classmethod
+    def _classify_query(cls, query_arg: ast.expr) -> str | None:
+        """Return a description if the argument is a dynamic SQL query built by
+        interpolation/concatenation, else None (taint gating happens separately)."""
+        # f-string with SQL keywords and interpolated values
+        if isinstance(query_arg, ast.JoinedStr):
+            if cls._fstring_has_sql(query_arg) and cls._fstring_has_variables(
+                query_arg
+            ):
+                return "Dynamic value interpolated into SQL query via f-string"
+            return None
+        # string concatenation with +
+        if isinstance(query_arg, ast.BinOp) and isinstance(query_arg.op, ast.Add):
+            if cls._binop_has_sql(query_arg):
+                return "Dynamic value concatenated into SQL query via + operator"
+            return None
+        # "...".format() on a SQL string
+        if (
+            isinstance(query_arg, ast.Call)
+            and isinstance(query_arg.func, ast.Attribute)
+            and query_arg.func.attr == "format"
+            and isinstance(query_arg.func.value, ast.Constant)
+            and isinstance(query_arg.func.value.value, str)
+            and cls._str_has_sql(query_arg.func.value.value)
+        ):
+            return "Dynamic value injected into SQL query via .format()"
+        # %-formatting on a SQL string
+        if (
+            isinstance(query_arg, ast.BinOp)
+            and isinstance(query_arg.op, ast.Mod)
+            and isinstance(query_arg.left, ast.Constant)
+            and isinstance(query_arg.left.value, str)
+            and cls._str_has_sql(query_arg.left.value)
+        ):
+            return "Dynamic value injected into SQL query via %-formatting"
+        return None
 
     @staticmethod
     def _get_func_name(node: ast.Call) -> str:

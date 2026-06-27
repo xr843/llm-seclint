@@ -65,10 +65,11 @@ def test_engine_get_rules_info() -> None:
     assert ids == {"LS001", "LS002", "LS003", "LS004", "LS005", "LS006", "LS007", "LS008", "LS010"}
     # Check that cwe_id is present in rules info
     assert all("cwe_id" in r for r in info)
-    # Stability is exposed; LS002/LS003 are the experimental rules.
+    # Stability is exposed; LS002 is the remaining experimental rule (LS003
+    # graduated to stable once it became taint-gated).
     stability = {r["id"]: r["stability"] for r in info}
     assert stability["LS002"] == "experimental"
-    assert stability["LS003"] == "experimental"
+    assert stability["LS003"] == "stable"
     assert stability["LS001"] == "stable"
 
 
