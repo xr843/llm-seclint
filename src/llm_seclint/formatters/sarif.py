@@ -18,6 +18,16 @@ _SEVERITY_TO_LEVEL: dict[Severity, str] = {
     Severity.INFO: "note",
 }
 
+# GitHub Code Scanning reads `properties.security-severity` (a 0.0-10.0 string,
+# CVSS-style) to render and sort a finding's severity.
+_SECURITY_SEVERITY: dict[Severity, str] = {
+    Severity.CRITICAL: "9.0",
+    Severity.HIGH: "7.0",
+    Severity.MEDIUM: "5.0",
+    Severity.LOW: "3.0",
+    Severity.INFO: "1.0",
+}
+
 _SARIF_SCHEMA = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json"
 _SARIF_VERSION = "2.1.0"
 
@@ -42,6 +52,11 @@ class SarifFormatter(BaseFormatter):
                     "name": finding.rule_name,
                     "shortDescription": {
                         "text": finding.rule_name,
+                    },
+                    "properties": {
+                        "security-severity": _SECURITY_SEVERITY.get(
+                            finding.severity, "5.0"
+                        ),
                     },
                 }
                 help_uri = _build_help_uri(finding)
@@ -68,6 +83,12 @@ class SarifFormatter(BaseFormatter):
                     }
                 ],
             }
+            # Surface a taint-confirmed dataflow as structured, filterable metadata.
+            if finding.taint_source:
+                result["properties"] = {
+                    "taint_source": finding.taint_source,
+                    "confirmed_dataflow": True,
+                }
             results.append(result)
 
         # Deterministic rule ordering

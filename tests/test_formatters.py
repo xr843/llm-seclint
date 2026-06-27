@@ -249,3 +249,24 @@ class TestTaintSurfacing:
         out = JsonFormatter().format([finding], elapsed=0.0)
         data = json.loads(out)
         assert data["findings"][0]["taint_source"] == "llm"
+
+
+class TestSarifTaintAndSeverity:
+    def test_result_has_taint_source_property(self) -> None:
+        f = _make_finding(rule_id="LS006", taint_source="llm")
+        data = json.loads(SarifFormatter().format([f], elapsed=0.0))
+        result = data["runs"][0]["results"][0]
+        assert result["properties"]["taint_source"] == "llm"
+        assert result["properties"]["confirmed_dataflow"] is True
+
+    def test_no_taint_property_when_unconfirmed(self) -> None:
+        f = _make_finding(rule_id="LS006")  # taint_source defaults to ""
+        data = json.loads(SarifFormatter().format([f], elapsed=0.0))
+        result = data["runs"][0]["results"][0]
+        assert "taint_source" not in result.get("properties", {})
+
+    def test_rule_has_security_severity(self) -> None:
+        f = _make_finding(rule_id="LS003", severity=Severity.CRITICAL)
+        data = json.loads(SarifFormatter().format([f], elapsed=0.0))
+        rule = data["runs"][0]["tool"]["driver"]["rules"][0]
+        assert rule["properties"]["security-severity"] == "9.0"
