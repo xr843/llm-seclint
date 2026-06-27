@@ -92,8 +92,9 @@ eval(code)   # LS006 — confirmed LLM→sink dataflow
 Today this confirmation drives every sink rule — **LS004** (shell), **LS005**
 (path), **LS006** (`eval`/`exec`/`pickle`), **LS007** (SSTI) and **LS008** (XXE);
 it never suppresses or downgrades an existing finding (a merely-dynamic argument
-is still reported). User-input sources now also confirm, and LS003 has graduated to stable;
-letting LS002 graduate the same way is on the [roadmap](#roadmap). Scope is
+is still reported). LS003 (SQL) graduated to stable on the back of this, and the
+experimental **LS002** (prompt injection) annotates its taint-confirmed subset
+too. Scope is
 deliberately bounded: single-function, single-pass (no cross-function or
 control-flow-graph precision yet).
 
@@ -144,7 +145,10 @@ Rules are graded by how reliably they distinguish a real issue from noise:
 
 This keeps the default scan high-signal. Run `llm-seclint rules` to see each
 rule's stability. LS003 graduated to stable once the taint engine could confirm
-the data source; the same path for LS002 is tracked on the [roadmap](#roadmap).
+the data source. LS002 stays experimental on purpose: prompt injection's
+dominant shape is a function *parameter* flowing into a prompt, which
+intra-procedural taint cannot confirm — so the broad heuristic earns its keep
+(and the taint-confirmable subset is annotated when you run `--experimental`).
 
 ### Examples
 
@@ -415,9 +419,10 @@ Please open an issue first to discuss significant changes.
 
 ## Roadmap
 
-- **v0.2**: Intra-procedural taint tracking (real LLM/user → sink data-flow) so
-  the [experimental](#rule-stability) rule LS002 can graduate to stable
-  with far fewer false positives
+- **v0.2** *(shipped)*: Intra-procedural taint tracking (real LLM/user → sink
+  data-flow) — every sink rule confirms dataflow and LS003 graduated to stable
+- **Next**: cross-function / control-flow-graph taint precision, so flows through
+  function parameters confirm (which would let LS002 graduate too)
 - **v0.3**: JavaScript/TypeScript analyzer (LangChain.js, Vercel AI SDK)
 - **v0.4**: Framework-specific rules (LangChain, LlamaIndex, Semantic Kernel)
 - **v0.5**: Auto-fix suggestions with `--fix` flag
