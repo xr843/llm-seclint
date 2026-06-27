@@ -5,7 +5,6 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from llm_seclint.analyzers.taint import TaintContext
 from llm_seclint.core.finding import Finding
 from llm_seclint.core.severity import Severity
 from llm_seclint.rules.base import Rule
@@ -62,13 +61,7 @@ class InsecureDeserializationRule(Rule):
             # If a dynamic argument is taint-confirmed to carry LLM/user output,
             # mark the finding as confirmed dataflow (enhancement only — a merely
             # dynamic argument is still reported with no taint source).
-            src = ""
-            if isinstance(taint, TaintContext):
-                for arg in node.args:
-                    confirmed = taint.is_tainted(arg)
-                    if confirmed:
-                        src = confirmed
-                        break
+            src = self._confirmed_taint(node.args, taint)
 
             message = f"Dynamic input passed to {func_display}"
             if src:

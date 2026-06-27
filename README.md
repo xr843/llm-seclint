@@ -88,10 +88,11 @@ code = resp.choices[0].message.content
 eval(code)   # LS006 — confirmed LLM→sink dataflow
 ```
 
-Today this confirmation drives **LS006** (`eval`/`exec`/`pickle`); it never
-suppresses or downgrades an existing finding (a merely-dynamic argument is still
-reported). Extending it to LS003/LS004 and to user-input sources — letting the
-experimental rules graduate to stable — is on the [roadmap](#roadmap). Scope is
+Today this confirmation drives every sink rule — **LS004** (shell), **LS005**
+(path), **LS006** (`eval`/`exec`/`pickle`), **LS007** (SSTI) and **LS008** (XXE);
+it never suppresses or downgrades an existing finding (a merely-dynamic argument
+is still reported). Adding user-input sources and letting the experimental rules
+(LS002/LS003) graduate to stable is on the [roadmap](#roadmap). Scope is
 deliberately bounded: single-function, single-pass (no cross-function or
 control-flow-graph precision yet).
 

@@ -48,3 +48,31 @@ class TestSSTI:
         code = 'render_template("index.html")'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 0
+
+
+class TestLs007TaintConfirmation:
+    def test_confirmed_llm_to_template(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = (
+            "r = litellm.completion(model='m')\n"
+            "t = r.content\n"
+            "render_template_string(t)\n"
+        )
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS007"][0]
+        assert f.taint_source == "llm"
+        assert "confirmed" in f.message.lower()
+
+    def test_plain_dynamic_unchanged(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        findings, _ = PythonAnalyzer([_rule()]).analyze(
+            "render_template_string(t)\n", Path("app.py")
+        )
+        f = [x for x in findings if x.rule_id == "LS007"][0]
+        assert f.taint_source == ""

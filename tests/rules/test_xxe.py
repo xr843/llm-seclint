@@ -56,3 +56,27 @@ class TestXXE:
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 1
         assert findings[0].rule_id == "LS008"
+
+
+class TestLs008TaintConfirmation:
+    def test_confirmed_llm_to_xml(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = "r = litellm.completion(model='m')\nx = r.content\netree.parse(x)\n"
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS008"][0]
+        assert f.taint_source == "llm"
+        assert "confirmed" in f.message.lower()
+
+    def test_plain_dynamic_unchanged(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        findings, _ = PythonAnalyzer([_rule()]).analyze(
+            "etree.parse(x)\n", Path("app.py")
+        )
+        f = [x for x in findings if x.rule_id == "LS008"][0]
+        assert f.taint_source == ""

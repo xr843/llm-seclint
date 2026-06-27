@@ -46,19 +46,24 @@ class LlmPathTraversalRule(Rule):
             func_display = func_info
 
             # Check if any argument is dynamic
+            src = self._confirmed_taint(node.args, taint)
             for arg in node.args:
                 if self._is_dynamic(arg):
+                    message = f"Dynamic value passed to {func_display}"
+                    if src:
+                        message += f" — confirmed {src.upper()}→sink dataflow"
                     findings.append(
                         self._make_finding(
                             file_path,
                             node.lineno,
-                            f"Dynamic value passed to {func_display}",
+                            message,
                             source_lines,
                             col=node.col_offset,
                             fix_suggestion=(
                                 "Validate and sanitize file paths from LLM output. "
                                 "Use os.path.realpath() and check against an allowed base directory."
                             ),
+                            taint_source=src,
                         )
                     )
                     break  # One finding per call is enough
