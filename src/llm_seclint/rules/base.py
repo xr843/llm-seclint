@@ -6,6 +6,7 @@ import abc
 import ast
 from pathlib import Path
 
+from llm_seclint.analyzers.taint import TaintContext
 from llm_seclint.core.finding import Finding
 from llm_seclint.core.severity import Severity
 
@@ -39,6 +40,26 @@ class Rule(abc.ABC):
             List of findings detected by this rule.
         """
         ...
+
+    @staticmethod
+    def _confirmed_taint(args: list[ast.expr], taint: object | None) -> str:
+        """Return the taint source of the first taint-confirmed argument (or any
+        element of a list/tuple argument), or '' when none is confirmed.
+
+        Sink rules use this to annotate a finding as a confirmed LLM/user->sink
+        dataflow. Returns '' whenever taint is unavailable, so behavior with
+        ``taint=None`` is unchanged (enhancement-only)."""
+        if not isinstance(taint, TaintContext):
+            return ""
+        for arg in args:
+            elements = (
+                arg.elts if isinstance(arg, (ast.List, ast.Tuple)) else [arg]
+            )
+            for node in elements:
+                source = taint.is_tainted(node)
+                if source:
+                    return source
+        return ""
 
     def _make_finding(
         self,

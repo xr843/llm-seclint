@@ -88,3 +88,25 @@ with open(filename) as f:
         for code in safe_calls:
             findings = run_rule_on_code(_rule(), code)
             assert len(findings) == 0, f"{code} should not trigger a finding"
+
+
+class TestLs005TaintConfirmation:
+    def test_confirmed_llm_to_path(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = "r = litellm.completion(model='m')\np = r.content\nopen(p)\n"
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS005"][0]
+        assert f.taint_source == "llm"
+        assert "confirmed" in f.message.lower()
+
+    def test_plain_dynamic_unchanged(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        findings, _ = PythonAnalyzer([_rule()]).analyze("open(p)\n", Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS005"][0]
+        assert f.taint_source == ""

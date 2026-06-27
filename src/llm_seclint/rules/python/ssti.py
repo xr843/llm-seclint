@@ -48,14 +48,20 @@ class SSTIRule(Rule):
             if not has_dynamic:
                 continue
 
+            src = self._confirmed_taint(node.args, taint)
+            message = f"Dynamic input passed to {func_display}"
+            if src:
+                message += f" — confirmed {src.upper()}→sink dataflow"
+
             findings.append(
                 self._make_finding(
                     file_path,
                     node.lineno,
-                    f"Dynamic input passed to {func_display}",
+                    message,
                     source_lines,
                     col=node.col_offset,
                     fix_suggestion=suggestion,
+                    taint_source=src,
                 )
             )
 
