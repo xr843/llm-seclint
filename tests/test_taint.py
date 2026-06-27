@@ -221,6 +221,20 @@ def test_requests_library_is_not_user_source() -> None:
         assert _analyze(code) is None, code
 
 
+def test_outgoing_request_attribute_not_user_source() -> None:
+    # `.request` tails on non-flask/self receivers are outgoing-request objects
+    # (requests/urllib3/Scrapy), not untrusted input.
+    for code in [
+        "use(resp.request.headers)\n",
+        "use(response.request.cookies)\n",
+        "use(client.request.data)\n",
+    ]:
+        assert _analyze(code) is None, code
+    # flask.request / self.request stay recognized.
+    assert _analyze("use(flask.request.args)\n") == USER
+    assert _analyze("use(self.request.data)\n") == USER
+
+
 def test_user_to_sink_confirmed_via_rule() -> None:
     # End-to-end: a user-input value reaching a sink is confirmed as USER.
     from pathlib import Path

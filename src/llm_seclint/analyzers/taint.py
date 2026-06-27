@@ -55,11 +55,22 @@ _REQUEST_METHODS = {"get_json", "get_data"}
 
 
 def _is_request_root(expr: ast.expr) -> bool:
-    """True for the Flask ``request`` object: a bare ``request`` name or an
-    attribute tail ``.request`` (e.g. ``flask.request``, ``self.request``)."""
+    """True for the Flask ``request`` object: a bare ``request`` name, or
+    ``flask.request`` / ``self.request``.
+
+    The attribute form is restricted to the ``flask``/``self`` receivers on
+    purpose: a bare ``.request`` tail on anything else is usually an *outgoing*
+    request object (``resp.request.headers`` from the requests/urllib3 client,
+    Scrapy ``response.request``, Celery ``self.request`` task context), which is
+    not untrusted web input."""
     if isinstance(expr, ast.Name):
         return expr.id == "request"
-    return isinstance(expr, ast.Attribute) and expr.attr == "request"
+    return (
+        isinstance(expr, ast.Attribute)
+        and expr.attr == "request"
+        and isinstance(expr.value, ast.Name)
+        and expr.value.id in ("flask", "self")
+    )
 
 
 def _is_request_data(expr: ast.expr) -> bool:
