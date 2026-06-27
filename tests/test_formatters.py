@@ -230,3 +230,22 @@ class TestSarifFormatter:
         assert run["tool"]["driver"]["name"] == "llm-seclint"
         assert run["tool"]["driver"]["rules"] == []
         assert run["results"] == []
+
+
+class TestTaintSurfacing:
+    """The confirmed-dataflow note and structured taint_source reach output."""
+
+    def test_text_formatter_surfaces_confirmed_note(self) -> None:
+        finding = _make_finding(
+            rule_id="LS006",
+            message="Dynamic input passed to eval() — confirmed LLM→sink dataflow",
+            taint_source="llm",
+        )
+        out = TextFormatter(use_color=False).format([finding], elapsed=0.0)
+        assert "confirmed" in out.lower()
+
+    def test_json_formatter_includes_taint_source(self) -> None:
+        finding = _make_finding(rule_id="LS006", taint_source="llm")
+        out = JsonFormatter().format([finding], elapsed=0.0)
+        data = json.loads(out)
+        assert data["findings"][0]["taint_source"] == "llm"
