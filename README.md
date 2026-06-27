@@ -58,7 +58,7 @@ to also enable the heuristic rule LS002 — see [Rule stability](#rule-stability
 ## How It Works
 
 ```text
-Source Code → AST Parsing → 9 Security Rules → Findings Report
+Source Code → AST Parsing → 10 Security Rules → Findings Report
                               ├─ LS001: Hardcoded API Keys
                               ├─ LS002: Prompt Injection
                               ├─ LS003: SQL Injection via LLM
@@ -67,6 +67,7 @@ Source Code → AST Parsing → 9 Security Rules → Findings Report
                               ├─ LS006: Insecure Deserialization
                               ├─ LS007: Template Injection (SSTI)
                               ├─ LS008: XXE XML Parsing
+                              ├─ LS009: SSRF via LLM/user output
                               └─ LS010: Unpinned LLM Dependencies
 ```
 
@@ -129,6 +130,7 @@ rules now detect.
 | LS006 | `insecure-deserialization` | HIGH | stable | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
 | LS007 | `server-side-template-injection` | CRITICAL | stable | Dynamic content passed to template engine without sandboxing |
 | LS008 | `xxe-xml-parsing` | HIGH | stable | XML parsing without protection against external entity attacks |
+| LS009 | `llm-to-ssrf` | HIGH | stable | LLM/user input used as an outbound request URL (taint-confirmed SSRF) |
 | LS010 | `unpinned-llm-dependency` | HIGH | stable | LLM dependency uses unpinned version constraint (e.g. `>=` without `<`), vulnerable to supply chain attacks |
 
 ### Rule stability
@@ -272,7 +274,7 @@ llm-seclint understands patterns from popular LLM frameworks:
 | OWASP LLM Top 10 | llm-seclint Rules |
 |---|---|
 | LLM01: Prompt Injection | LS002 |
-| LLM02: Insecure Output Handling | LS003, LS004, LS005, LS006, LS007 |
+| LLM02: Insecure Output Handling | LS003, LS004, LS005, LS006, LS007, LS009 |
 | LLM06: Sensitive Information Disclosure | LS001 |
 | A05:2021: Security Misconfiguration | LS008 (CWE-611) |
 
