@@ -19,6 +19,10 @@ class Rule(abc.ABC):
     description: str = ""
     cwe_id: str = ""
     owasp_llm: str = ""
+    # "stable": low false-positive, sink-driven or pattern-unique -> on by default.
+    # "experimental": relies on naming/keyword heuristics to guess the data
+    # source (LLM/user), so higher false-positive rate -> off unless --experimental.
+    stability: str = "stable"
 
     @abc.abstractmethod
     def check(
@@ -78,6 +82,10 @@ class TextRule(abc.ABC):
     description: str = ""
     cwe_id: str = ""
     owasp_llm: str = ""
+    # "stable": low false-positive, sink-driven or pattern-unique -> on by default.
+    # "experimental": relies on naming/keyword heuristics to guess the data
+    # source (LLM/user), so higher false-positive rate -> off unless --experimental.
+    stability: str = "stable"
 
     @abc.abstractmethod
     def check_text(

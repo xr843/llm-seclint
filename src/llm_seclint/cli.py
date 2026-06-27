@@ -87,6 +87,12 @@ def main() -> None:
     help="Scan profile: 'app' (default) for LLM-powered apps, 'engine' for LLM inference engines.",
 )
 @click.option(
+    "--experimental",
+    is_flag=True,
+    default=False,
+    help="Also run experimental (heuristic, higher false-positive) rules, e.g. LS002/LS003.",
+)
+@click.option(
     "-v",
     "--verbose",
     is_flag=True,
@@ -116,6 +122,7 @@ def scan(
     config_path: str | None,
     min_severity: str | None,
     profile: str,
+    experimental: bool,
     verbose: bool,
     quiet: bool,
     show_groups: bool,
@@ -148,6 +155,8 @@ def scan(
         )
     if min_severity:
         config.min_severity = min_severity
+    if experimental:
+        config.include_experimental = True
 
     engine = ScanEngine(config)
 
@@ -208,9 +217,10 @@ def rules() -> None:
     header.append(f"{'CWE':<10} ", style="bold")
     header.append(f"{'Name':<30} ", style="bold")
     header.append(f"{'Severity':<10} ", style="bold")
+    header.append(f"{'Stability':<13} ", style="bold")
     header.append("Description", style="bold")
     console.print(header)
-    console.print("-" * 100)
+    console.print("-" * 110)
 
     for rule in rules_info:
         line = Text()
@@ -222,9 +232,19 @@ def rules() -> None:
         severity_color = _SEVERITY_COLORS.get(rule["severity"], "white")
         line.append(f"{rule['severity']:<10} ", style=severity_color)
 
+        stability = rule.get("stability", "stable") or "stable"
+        stability_color = "dim" if stability == "experimental" else "green"
+        line.append(f"{stability:<13} ", style=stability_color)
+
         line.append(rule["description"])
         console.print(line)
 
+    n_experimental = sum(
+        1 for r in rules_info if r.get("stability") == "experimental"
+    )
     console.print()
-    console.print(f"[dim]{len(rules_info)} rule(s) available[/dim]")
+    console.print(
+        f"[dim]{len(rules_info)} rule(s) available "
+        f"({n_experimental} experimental, off unless --experimental)[/dim]"
+    )
     console.print()

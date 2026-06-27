@@ -65,6 +65,23 @@ def test_engine_get_rules_info() -> None:
     assert ids == {"LS001", "LS002", "LS003", "LS004", "LS005", "LS006", "LS007", "LS008", "LS010"}
     # Check that cwe_id is present in rules info
     assert all("cwe_id" in r for r in info)
+    # Stability is exposed; LS002/LS003 are the experimental rules.
+    stability = {r["id"]: r["stability"] for r in info}
+    assert stability["LS002"] == "experimental"
+    assert stability["LS003"] == "experimental"
+    assert stability["LS001"] == "stable"
+
+
+def test_engine_skips_experimental_by_default(tmp_path: Path) -> None:
+    py_file = tmp_path / "app.py"
+    # Pure LS002 (experimental) trigger, no stable findings.
+    py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
+
+    assert ScanEngine().scan([tmp_path]).findings == []
+
+    config = ScanConfig(include_experimental=True)
+    findings = ScanEngine(config).scan([tmp_path]).findings
+    assert any(f.rule_id == "LS002" for f in findings)
 
 
 def test_engine_scans_single_file(tmp_path: Path) -> None:

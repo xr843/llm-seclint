@@ -19,6 +19,7 @@ _KNOWN_KEYS = {
     "min_severity",
     "output_format",
     "output_file",
+    "include_experimental",
 }
 
 _MAX_TRAVERSAL_LEVELS = 5
@@ -33,6 +34,7 @@ class ScanConfig(BaseModel):
     min_severity: str = "HIGH"
     output_format: str = "text"
     output_file: str = ""
+    include_experimental: bool = False
 
     model_config = {"extra": "ignore"}
 

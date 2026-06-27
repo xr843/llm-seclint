@@ -90,6 +90,9 @@ class PromptConcatInjectionRule(Rule):
     rule_id = "LS002"
     rule_name = "prompt-concat-injection"
     severity = Severity.HIGH
+    # Heuristic: infers "prompt" + "user input" from string content / variable
+    # names, so it over-reports. Off by default; enable with --experimental.
+    stability = "experimental"
     description = (
         "User-controlled input is concatenated directly into an LLM prompt. "
         "This may allow prompt injection attacks."
