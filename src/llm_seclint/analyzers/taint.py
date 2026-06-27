@@ -15,6 +15,7 @@ engine-design.md):
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterator
 
 # Taint source labels.
 LLM = "llm"
@@ -110,7 +111,7 @@ def _iter_scopes(tree: ast.Module) -> list[list[ast.stmt]]:
     return scopes
 
 
-def _iter_stmts(body: list[ast.stmt]):
+def _iter_stmts(body: list[ast.stmt]) -> Iterator[ast.stmt]:
     """Yield statements in source order within a scope, descending into
     compound-statement bodies but not crossing nested function/class boundaries
     (those are separate scopes)."""
@@ -124,7 +125,7 @@ def _iter_stmts(body: list[ast.stmt]):
                 yield from _iter_stmts(inner)
 
 
-def _used_exprs(stmt: ast.stmt):
+def _used_exprs(stmt: ast.stmt) -> Iterator[ast.expr]:
     """Yield expression nodes referenced by a statement, excluding the names
     being assigned to (so the LHS of ``x = ...`` is not treated as a use)."""
     targets: set[int] = set()

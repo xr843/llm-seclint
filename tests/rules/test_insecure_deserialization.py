@@ -78,3 +78,29 @@ class TestInsecureDeserialization:
         code = 'compiled = compile(source_code, "<string>", "exec")'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 1
+
+
+class TestLs006TaintConfirmation:
+    """Taint-confirmed LLM->sink dataflow is marked; plain dynamic unchanged."""
+
+    def test_confirmed_llm_dataflow(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = "r = litellm.completion(model='m')\nx = r.content\neval(x)\n"
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("a.py"))
+        f = [f for f in findings if f.rule_id == "LS006"][0]
+        assert f.taint_source == "llm"
+        assert "confirmed" in f.message.lower()
+
+    def test_plain_dynamic_unchanged(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = "x = get_local()\neval(x)\n"
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("a.py"))
+        f = [f for f in findings if f.rule_id == "LS006"][0]
+        assert f.taint_source == ""
+        assert "confirmed" not in f.message.lower()

@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 from llm_seclint.analyzers.base import BaseAnalyzer
+from llm_seclint.analyzers.taint import TaintContext
 from llm_seclint.core.finding import Finding
 from llm_seclint.rules.base import Rule
 
@@ -66,11 +67,18 @@ class PythonAnalyzer(BaseAnalyzer):
             lineno = exc.lineno or 0
             return [], f"SyntaxError at line {lineno}"
 
+        # Build taint context. Taint must never break a scan, so any failure
+        # degrades safely to an empty context (rules fall back to current behavior).
+        try:
+            taint = TaintContext.from_module(tree)
+        except Exception:  # noqa: BLE001 - defensive: taint is best-effort
+            taint = TaintContext({})
+
         source_lines = source.splitlines()
         findings: list[Finding] = []
 
         for rule in self.rules:
-            rule_findings = rule.check(tree, file_path, source_lines)
+            rule_findings = rule.check(tree, file_path, source_lines, taint=taint)
             findings.extend(rule_findings)
 
         # Filter out findings suppressed by inline # nosec comments
