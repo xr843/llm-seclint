@@ -22,6 +22,10 @@ class LlmSqlInjectionRule(Rule):
     rule_id = "LS003"
     rule_name = "llm-to-sql-injection"
     severity = Severity.CRITICAL
+    # Flags any dynamic f-string/concat SQL regardless of whether the value is
+    # LLM-derived, so it over-reports (and overlaps Bandit B608). Off by default;
+    # enable with --experimental.
+    stability = "experimental"
     description = (
         "LLM output is concatenated into a SQL query string. "
         "This allows SQL injection if the LLM output is attacker-influenced."

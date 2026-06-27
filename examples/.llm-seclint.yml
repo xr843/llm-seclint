@@ -16,3 +16,6 @@ ignore_rules: []
 
 # Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW, INFO)
 min_severity: MEDIUM
+
+# Also run experimental (heuristic, higher false-positive) rules: LS002, LS003
+include_experimental: false

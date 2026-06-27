@@ -45,12 +45,15 @@ That's it. You'll see output like:
 ```text
 src/app.py
   !! L12 [LS001] Hardcoded API key assigned to 'OPENAI_API_KEY'
-  !  L25 [LS002] User input interpolated into prompt via f-string
-  !! L41 [LS003] LLM/dynamic output interpolated into SQL query via f-string
+  !  L41 [LS006] Dynamic input passed to eval()
+  !! L55 [LS004] Dynamic output passed to subprocess.run() with shell=True
 
 Found 3 issue(s): 2 critical, 1 high
 Scanned in 0.03s
 ```
+
+By default only **stable** (low false-positive) rules run. Add `--experimental`
+to also enable the heuristic rules (LS002, LS003) — see [Rule stability](#rule-stability).
 
 ## How It Works
 
@@ -90,17 +93,32 @@ rules now detect.
 
 ## What It Detects
 
-| Rule | Name | Severity | Description |
-|------|------|----------|-------------|
-| LS001 | `hardcoded-api-key` | CRITICAL | Hardcoded API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) |
-| LS002 | `prompt-concat-injection` | HIGH | User input concatenated into LLM prompts via f-strings, `+`, or `.format()` |
-| LS003 | `llm-to-sql-injection` | CRITICAL | LLM output interpolated into SQL queries |
-| LS004 | `llm-to-shell-injection` | CRITICAL | LLM output passed to `subprocess` / `os.system` |
-| LS005 | `llm-to-path-traversal` | HIGH | LLM output used as file paths |
-| LS006 | `insecure-deserialization` | HIGH | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
-| LS007 | `server-side-template-injection` | CRITICAL | Dynamic content passed to template engine without sandboxing |
-| LS008 | `xxe-xml-parsing` | HIGH | XML parsing without protection against external entity attacks |
-| LS010 | `unpinned-llm-dependency` | HIGH | LLM dependency uses unpinned version constraint (e.g. `>=` without `<`), vulnerable to supply chain attacks |
+| Rule | Name | Severity | Stability | Description |
+|------|------|----------|-----------|-------------|
+| LS001 | `hardcoded-api-key` | CRITICAL | stable | Hardcoded API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) |
+| LS002 | `prompt-concat-injection` | HIGH | experimental | User input concatenated into LLM prompts via f-strings, `+`, or `.format()` |
+| LS003 | `llm-to-sql-injection` | CRITICAL | experimental | LLM output interpolated into SQL queries |
+| LS004 | `llm-to-shell-injection` | CRITICAL | stable | LLM output passed to `subprocess` / `os.system` |
+| LS005 | `llm-to-path-traversal` | HIGH | stable | LLM output used as file paths |
+| LS006 | `insecure-deserialization` | HIGH | stable | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
+| LS007 | `server-side-template-injection` | CRITICAL | stable | Dynamic content passed to template engine without sandboxing |
+| LS008 | `xxe-xml-parsing` | HIGH | stable | XML parsing without protection against external entity attacks |
+| LS010 | `unpinned-llm-dependency` | HIGH | stable | LLM dependency uses unpinned version constraint (e.g. `>=` without `<`), vulnerable to supply chain attacks |
+
+### Rule stability
+
+Rules are graded by how reliably they distinguish a real issue from noise:
+
+- **stable** — sink-driven or pattern-unique (a hardcoded provider key, `eval()`
+  on dynamic input, XXE-prone parsing). Low false-positive. **On by default.**
+- **experimental** — relies on naming/keyword heuristics to *guess* whether data
+  is LLM- or user-derived (LS002 keys off words like "you are"; LS003 flags any
+  dynamic SQL f-string regardless of source, and overlaps Bandit's B608). Higher
+  false-positive, so **off unless you pass `--experimental`**.
+
+This keeps the default scan high-signal. Run `llm-seclint rules` to see each
+rule's stability. A precise data-flow (taint) engine that would let LS002/LS003
+graduate to stable is tracked on the [roadmap](#roadmap).
 
 ### Examples
 
@@ -279,6 +297,16 @@ llm-seclint ships with two scan profiles:
 - `--profile engine` — Tuned for LLM inference engines (vllm, TGI, etc.).
   Disables LS002 (prompt injection) since processing prompts is the engine's job.
 
+### Experimental rules
+
+By default only [stable](#rule-stability) rules run. Add `--experimental` to also
+enable the heuristic rules (LS002, LS003), or set `include_experimental: true` in
+your config file:
+
+```bash
+llm-seclint scan . --experimental
+```
+
 ### Inline Suppression
 
 Suppress specific findings with `# nosec` comments:
@@ -333,6 +361,9 @@ ignore_rules:
 
 # Minimum severity to report (CRITICAL, HIGH, MEDIUM, LOW, INFO)
 min_severity: MEDIUM
+
+# Also run experimental (heuristic, higher false-positive) rules
+include_experimental: false
 ```
 
 ## Installation for Development
@@ -358,8 +389,10 @@ Please open an issue first to discuss significant changes.
 
 ## Roadmap
 
-- **v0.2**: JavaScript/TypeScript analyzer (LangChain.js, Vercel AI SDK)
-- **v0.3**: YAML/JSON config file scanning (detecting secrets in LangChain configs)
+- **v0.2**: Intra-procedural taint tracking (real LLM/user → sink data-flow) so
+  the [experimental](#rule-stability) rules (LS002/LS003) can graduate to stable
+  with far fewer false positives
+- **v0.3**: JavaScript/TypeScript analyzer (LangChain.js, Vercel AI SDK)
 - **v0.4**: Framework-specific rules (LangChain, LlamaIndex, Semantic Kernel)
 - **v0.5**: Auto-fix suggestions with `--fix` flag
 - **v1.0**: Stable API, VS Code extension

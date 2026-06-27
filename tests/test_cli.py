@@ -123,23 +123,50 @@ def test_min_severity_info_shows_all(tmp_path: Path) -> None:
     assert result.exit_code == 1
 
 
+def test_experimental_off_by_default(tmp_path: Path) -> None:
+    """LS002 (experimental) is off by default: a pure prompt-injection file
+    yields no findings without --experimental."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path)])
+    assert "LS002" not in result.output
+    assert result.exit_code == 0
+
+
+def test_experimental_flag_enables_ls002(tmp_path: Path) -> None:
+    """--experimental turns on the heuristic LS002 rule."""
+    py_file = tmp_path / "app.py"
+    py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["scan", str(tmp_path), "--experimental"])
+    assert "LS002" in result.output
+    assert result.exit_code == 1
+
+
 def test_profile_engine_disables_ls002(tmp_path: Path) -> None:
-    """--profile engine should disable LS002 (prompt injection)."""
+    """--profile engine should disable LS002 even when --experimental is on."""
     py_file = tmp_path / "app.py"
     # LS002 is prompt injection via f-string
     py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
 
     runner = CliRunner()
-    result = runner.invoke(main, ["scan", str(tmp_path), "--profile", "engine"])
+    result = runner.invoke(
+        main, ["scan", str(tmp_path), "--experimental", "--profile", "engine"]
+    )
     assert "LS002" not in result.output
 
 
 def test_profile_app_keeps_all_rules(tmp_path: Path) -> None:
-    """--profile app (default) should keep all rules including LS002."""
+    """--profile app with --experimental keeps LS002."""
     py_file = tmp_path / "app.py"
     py_file.write_text('prompt = f"You are a bot. User says: {user_input}"\n')
 
     runner = CliRunner()
-    result = runner.invoke(main, ["scan", str(tmp_path), "--profile", "app"])
+    result = runner.invoke(
+        main, ["scan", str(tmp_path), "--experimental", "--profile", "app"]
+    )
     assert "LS002" in result.output
     assert result.exit_code == 1

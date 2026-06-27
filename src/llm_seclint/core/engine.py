@@ -42,6 +42,16 @@ class ScanEngine:
 
     def _apply_config(self) -> None:
         """Apply configuration to filter rules."""
+        # Experimental (heuristic, higher false-positive) rules are off unless
+        # explicitly enabled, so the default scan is high-precision.
+        if not self.config.include_experimental:
+            for rule in self.registry.get_all_rules():
+                if rule.stability == "experimental":
+                    self.registry.disable_rule(rule.rule_id)
+            for text_rule in self.registry.get_all_text_rules():
+                if text_rule.stability == "experimental":
+                    self.registry.disable_rule(text_rule.rule_id)
+
         if self.config.ignore_rules:
             for rule_id in self.config.ignore_rules:
                 self.registry.disable_rule(rule_id)
@@ -148,6 +158,7 @@ class ScanEngine:
                 "severity": str(rule.severity),
                 "description": rule.description,
                 "cwe_id": rule.cwe_id,
+                "stability": rule.stability,
                 "enabled": str(rule.rule_id not in self.registry.disabled_rules),
             }
             for rule in self.registry.get_all_rules()
@@ -159,6 +170,7 @@ class ScanEngine:
                 "severity": str(rule.severity),
                 "description": rule.description,
                 "cwe_id": rule.cwe_id,
+                "stability": rule.stability,
                 "enabled": str(rule.rule_id not in self.registry.disabled_rules),
             }
             for rule in self.registry.get_all_text_rules()
