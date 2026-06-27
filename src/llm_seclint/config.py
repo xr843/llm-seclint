@@ -55,7 +55,7 @@ def _get_git_root() -> Path | None:
     return None
 
 
-def _validate_config_data(data: dict) -> None:
+def _validate_config_data(data: dict[str, object]) -> None:
     """Validate config data and warn on issues.
 
     Raises SystemExit for invalid min_severity.

@@ -84,5 +84,5 @@ class RuleRegistry:
         text_defaults: list[TextRule] = [
             UnpinnedLlmDependencyRule(),
         ]
-        for rule in text_defaults:
-            self.register_text_rule(rule)
+        for text_rule in text_defaults:
+            self.register_text_rule(text_rule)
