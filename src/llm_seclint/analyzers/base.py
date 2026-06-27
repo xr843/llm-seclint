@@ -16,7 +16,9 @@ class BaseAnalyzer(abc.ABC):
         self.rules = rules
 
     @abc.abstractmethod
-    def analyze(self, source: str, file_path: Path) -> list[Finding]:
+    def analyze(
+        self, source: str, file_path: Path
+    ) -> tuple[list[Finding], str | None]:
         """Analyze a source file and return findings.
 
         Args:
@@ -24,6 +26,6 @@ class BaseAnalyzer(abc.ABC):
             file_path: Path to the source file.
 
         Returns:
-            List of findings detected in the file.
+            A tuple of (findings in the file, parse-error string or None).
         """
         ...

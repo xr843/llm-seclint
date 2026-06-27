@@ -34,7 +34,6 @@ jobs:
 
       - name: Type check with mypy
         run: mypy src/llm_seclint/
-        continue-on-error: true
 
       - name: Run tests
         run: pytest -v --tb=short --cov=llm_seclint --cov-report=term-missing

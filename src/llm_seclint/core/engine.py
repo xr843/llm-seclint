@@ -66,9 +66,9 @@ class ScanEngine:
             for rule in list(self.registry.get_enabled_rules()):
                 if rule.severity not in allowed:
                     self.registry.disable_rule(rule.rule_id)
-            for rule in list(self.registry.get_enabled_text_rules()):
-                if rule.severity not in allowed:
-                    self.registry.disable_rule(rule.rule_id)
+            for text_rule in list(self.registry.get_enabled_text_rules()):
+                if text_rule.severity not in allowed:
+                    self.registry.disable_rule(text_rule.rule_id)
 
     def scan(self, paths: list[Path]) -> ScanResult:
         """Scan the given paths and return all findings.
