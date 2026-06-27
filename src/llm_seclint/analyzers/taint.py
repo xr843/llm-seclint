@@ -46,6 +46,60 @@ def _is_llm_call(node: ast.Call) -> bool:
     return False
 
 
+# Flask/Werkzeug/FastAPI request data attributes and inline-read methods.
+_REQUEST_DATA = {
+    "args", "form", "json", "values", "data", "cookies", "headers",
+    "files", "query_params",
+}
+_REQUEST_METHODS = {"get_json", "get_data"}
+
+
+def _is_request_root(expr: ast.expr) -> bool:
+    """True for the Flask ``request`` object: a bare ``request`` name or an
+    attribute tail ``.request`` (e.g. ``flask.request``, ``self.request``)."""
+    if isinstance(expr, ast.Name):
+        return expr.id == "request"
+    return isinstance(expr, ast.Attribute) and expr.attr == "request"
+
+
+def _is_request_data(expr: ast.expr) -> bool:
+    """True for ``request.<data>`` (e.g. ``request.args``, ``request.json``)."""
+    return (
+        isinstance(expr, ast.Attribute)
+        and expr.attr in _REQUEST_DATA
+        and _is_request_root(expr.value)
+    )
+
+
+def _is_user_source(expr: ast.expr) -> bool:
+    """True if the expression reads untrusted user/CLI/web input.
+
+    Covered: ``input(...)``, ``sys.argv``, ``request.<data>`` and its
+    ``.get()``/``.getlist()`` accessors, and ``request.get_json()/get_data()``.
+    Matching is structural; a variable literally named ``request`` is assumed to
+    be the Flask request (documented limitation — the ``requests`` HTTP client's
+    ``.json()`` etc. are deliberately not matched).
+    """
+    if isinstance(expr, ast.Call):
+        func = expr.func
+        if isinstance(func, ast.Name) and func.id == "input":
+            return True
+        if isinstance(func, ast.Attribute):
+            if func.attr in _REQUEST_METHODS and _is_request_root(func.value):
+                return True
+            if func.attr in ("get", "getlist") and _is_request_data(func.value):
+                return True
+        return False
+    if _is_request_data(expr):
+        return True
+    return (
+        isinstance(expr, ast.Attribute)
+        and expr.attr == "argv"
+        and isinstance(expr.value, ast.Name)
+        and expr.value.id == "sys"
+    )
+
+
 class _ScopeTaint:
     """Taint state for a single scope, built in source order."""
 
@@ -61,6 +115,8 @@ class _ScopeTaint:
         return src
 
     def _compute(self, expr: ast.expr) -> str | None:
+        if _is_user_source(expr):
+            return USER
         if isinstance(expr, ast.Call):
             if _is_llm_call(expr):
                 return LLM

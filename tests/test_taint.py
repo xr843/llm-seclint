@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 
-from llm_seclint.analyzers.taint import LLM, TaintContext
+from llm_seclint.analyzers.taint import LLM, USER, TaintContext
 
 
 def _analyze(code: str) -> str | None:
@@ -182,3 +182,58 @@ def test_rule_check_accepts_taint_kwarg() -> None:
     tree = ast.parse("x = 1\n")
     # Must accept the taint kwarg without error and behave normally.
     assert rule.check(tree, Path("a.py"), ["x = 1"], taint=None) == []
+
+
+# --- User-input source (Task: PR #6) ---
+
+
+def test_user_source_input() -> None:
+    assert _analyze("x = input()\nuse(x)\n") == USER
+    assert _analyze("x = input('prompt> ')\nuse(x)\n") == USER
+
+
+def test_user_source_shapes() -> None:
+    for src in [
+        "sys.argv",
+        "sys.argv[1]",
+        "request.args.get('q')",
+        "request.form['name']",
+        "request.json",
+        "request.values.get('x')",
+        "request.get_json()",
+        "request.data",
+    ]:
+        assert _analyze(f"x = {src}\nuse(x)\n") == USER, src
+
+
+def test_user_source_propagates_through_build() -> None:
+    code = "raw = request.args.get('q')\nq = f'SELECT * FROM t WHERE n={raw}'\nuse(q)\n"
+    assert _analyze(code) == USER
+
+
+def test_requests_library_is_not_user_source() -> None:
+    # The `requests` HTTP client and an arbitrary `.json()` are NOT user input.
+    for code in [
+        "x = requests.get(url)\nuse(x)\n",
+        "resp = http.get(url)\nx = resp.json()\nuse(x)\n",
+        "x = other.data\nuse(x)\n",
+    ]:
+        assert _analyze(code) is None, code
+
+
+def test_user_to_sink_confirmed_via_rule() -> None:
+    # End-to-end: a user-input value reaching a sink is confirmed as USER.
+    from pathlib import Path
+
+    from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+    from llm_seclint.rules.python.insecure_deserialization import (
+        InsecureDeserializationRule,
+    )
+
+    code = "raw = request.args.get('code')\neval(raw)\n"
+    findings, _ = PythonAnalyzer([InsecureDeserializationRule()]).analyze(
+        code, Path("a.py")
+    )
+    f = [x for x in findings if x.rule_id == "LS006"][0]
+    assert f.taint_source == "user"
+    assert "USER→sink" in f.message
