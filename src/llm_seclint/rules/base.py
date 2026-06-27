@@ -26,7 +26,7 @@ class Rule(abc.ABC):
 
     @abc.abstractmethod
     def check(
-        self, tree: ast.Module, file_path: Path, source_lines: list[str]
+        self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         """Run the rule against an AST and return any findings.
 
@@ -48,6 +48,7 @@ class Rule(abc.ABC):
         source_lines: list[str],
         col: int = 0,
         fix_suggestion: str = "",
+        taint_source: str = "",
     ) -> Finding:
         """Helper to create a Finding with common fields pre-filled."""
         snippet = ""
@@ -66,6 +67,7 @@ class Rule(abc.ABC):
             fix_suggestion=fix_suggestion,
             cwe_id=self.cwe_id,
             owasp_llm=self.owasp_llm,
+            taint_source=taint_source,
         )
 
 
@@ -110,6 +112,7 @@ class TextRule(abc.ABC):
         source_lines: list[str],
         col: int = 0,
         fix_suggestion: str = "",
+        taint_source: str = "",
     ) -> Finding:
         """Helper to create a Finding with common fields pre-filled."""
         snippet = ""
@@ -128,4 +131,5 @@ class TextRule(abc.ABC):
             fix_suggestion=fix_suggestion,
             cwe_id=self.cwe_id,
             owasp_llm=self.owasp_llm,
+            taint_source=taint_source,
         )

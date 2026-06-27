@@ -72,6 +72,29 @@ Source Code → AST Parsing → 9 Security Rules → Findings Report
 
 llm-seclint parses your Python files into Abstract Syntax Trees and applies targeted security rules that understand LLM-specific data flows. No model access required, no runtime overhead -- just fast, deterministic analysis.
 
+### Confirmed dataflow (taint analysis)
+
+Beyond matching dangerous sinks, llm-seclint runs a lightweight **intra-procedural
+taint engine** that tracks values returned by an LLM API call (`openai`/`litellm`/
+Anthropic completions) as they flow through assignments, attribute/subscript
+chains, and string building within a function. When such a value reaches a sink,
+the finding is annotated **`confirmed LLM→sink dataflow`** and carries a
+structured `taint_source` field — so you can tell a real LLM-output-to-`eval()`
+flow from a merely-dynamic argument:
+
+```python
+resp = openai.chat.completions.create(model="gpt-4", messages=msgs)
+code = resp.choices[0].message.content
+eval(code)   # LS006 — confirmed LLM→sink dataflow
+```
+
+Today this confirmation drives **LS006** (`eval`/`exec`/`pickle`); it never
+suppresses or downgrades an existing finding (a merely-dynamic argument is still
+reported). Extending it to LS003/LS004 and to user-input sources — letting the
+experimental rules graduate to stable — is on the [roadmap](#roadmap). Scope is
+deliberately bounded: single-function, single-pass (no cross-function or
+control-flow-graph precision yet).
+
 ## Where These Rules Come From
 
 Every rule maps to a real insecure pattern I found while **manually auditing**

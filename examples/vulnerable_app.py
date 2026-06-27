@@ -64,6 +64,18 @@ def load_cached_response(data: bytes) -> object:
     return pickle.loads(data)
 
 
+def run_llm_generated_code(prompt: str) -> object:
+    """Execute code the model returns — confirmed LLM->sink dataflow."""
+    # LS006: the LLM's output flows through a variable into eval() within this
+    # function, so the taint engine confirms the LLM->sink dataflow.
+    response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    code = response.choices[0].message.content
+    return eval(code)
+
+
 def main() -> None:
     user_msg = input("Enter your message: ")
     response = get_chat_response(user_msg)

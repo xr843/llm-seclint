@@ -37,7 +37,7 @@ class XXERule(Rule):
     owasp_llm = "A05:2021: Security Misconfiguration"
 
     def check(
-        self, tree: ast.Module, file_path: Path, source_lines: list[str]
+        self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         findings: list[Finding] = []
 
