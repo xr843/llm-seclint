@@ -9,10 +9,19 @@ from llm_seclint.core.finding import Finding
 from llm_seclint.core.severity import Severity
 from llm_seclint.rules.base import Rule
 
-# HTTP client modules whose request methods take a URL as the first argument.
+# HTTP client modules whose request methods take a URL argument.
 _HTTP_MODULES = {"requests", "httpx"}
 _HTTP_METHODS = {
     "get", "post", "put", "delete", "head", "patch", "options", "request",
+}
+# (module, constructor) pairs that build a reusable HTTP session/client whose
+# instance then exposes the same request methods.
+_SESSION_CTORS = {
+    ("requests", "Session"),
+    ("httpx", "Client"),
+    ("httpx", "AsyncClient"),
+    ("aiohttp", "ClientSession"),
+    ("urllib3", "PoolManager"),
 }
 
 
@@ -37,16 +46,18 @@ class SsrfRule(Rule):
         self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         findings: list[Finding] = []
+        session_vars = self._session_vars(tree)
 
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
 
-            sink = self._classify(node)
-            if sink is None:
+            info = self._classify(node, session_vars)
+            if info is None:
                 continue
+            display, method = info
 
-            url_arg = self._url_arg(node)
+            url_arg = self._url_arg(node, method)
             if url_arg is None or isinstance(url_arg, ast.Constant):
                 continue
 
@@ -58,7 +69,7 @@ class SsrfRule(Rule):
                 self._make_finding(
                     file_path,
                     node.lineno,
-                    f"{src.upper()} input used as request URL in {sink} "
+                    f"{src.upper()} input used as request URL in {display} "
                     f"— confirmed SSRF dataflow",
                     source_lines,
                     col=node.col_offset,
@@ -74,29 +85,79 @@ class SsrfRule(Rule):
         return findings
 
     @staticmethod
-    def _classify(node: ast.Call) -> str | None:
-        """Return a display name if the call is an outbound HTTP request, else None."""
+    def _session_vars(tree: ast.Module) -> set[str]:
+        """Collect variables assigned from an HTTP session/client constructor.
+
+        A name that is *also* assigned a non-session value anywhere is dropped:
+        collection is file-global, so without this a common name like ``client``
+        used as a session in one function and a redis/dict client in another
+        would mislabel the latter's ``.get(tainted)`` as SSRF. Precision-first:
+        we accept the rare false negative of a legitimately reused name."""
+        session_names: set[str] = set()
+        rebound: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                is_ctor = SsrfRule._is_session_ctor(node.value)
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        (session_names if is_ctor else rebound).add(target.id)
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and node.value is not None
+                and isinstance(node.target, ast.Name)
+                and not SsrfRule._is_session_ctor(node.value)
+            ):
+                rebound.add(node.target.id)
+        return session_names - rebound
+
+    @staticmethod
+    def _is_session_ctor(expr: ast.expr) -> bool:
+        """True for ``requests.Session()`` / ``httpx.Client()`` / etc."""
+        return (
+            isinstance(expr, ast.Call)
+            and isinstance(expr.func, ast.Attribute)
+            and isinstance(expr.func.value, ast.Name)
+            and (expr.func.value.id, expr.func.attr) in _SESSION_CTORS
+        )
+
+    @staticmethod
+    def _classify(node: ast.Call, session_vars: set[str]) -> tuple[str, str] | None:
+        """Return (display, method) if the call is an outbound HTTP request."""
         func = node.func
         if isinstance(func, ast.Attribute):
+            method = func.attr
+            recv = func.value
             # requests.get(...) / httpx.post(...)
             if (
-                isinstance(func.value, ast.Name)
-                and func.value.id in _HTTP_MODULES
-                and func.attr in _HTTP_METHODS
+                isinstance(recv, ast.Name)
+                and recv.id in _HTTP_MODULES
+                and method in _HTTP_METHODS
             ):
-                return f"{func.value.id}.{func.attr}()"
+                return f"{recv.id}.{method}()", method
             # urllib.request.urlopen(...) (or any *.urlopen)
-            if func.attr == "urlopen":
-                return "urlopen()"
+            if method == "urlopen":
+                return "urlopen()", "urlopen"
+            # session_var.get(...) where session_var = requests.Session() etc.
+            if (
+                method in _HTTP_METHODS
+                and isinstance(recv, ast.Name)
+                and recv.id in session_vars
+            ):
+                return f"{recv.id}.{method}()", method
+            # inline: requests.Session().get(...)
+            if method in _HTTP_METHODS and SsrfRule._is_session_ctor(recv):
+                return f"session.{method}()", method
         elif isinstance(func, ast.Name) and func.id == "urlopen":
-            return "urlopen()"
+            return "urlopen()", "urlopen"
         return None
 
     @staticmethod
-    def _url_arg(node: ast.Call) -> ast.expr | None:
-        """Return the URL argument: the first positional arg, or ``url=``."""
-        if node.args:
-            return node.args[0]
+    def _url_arg(node: ast.Call, method: str) -> ast.expr | None:
+        """Return the URL argument. ``request(method, url)`` takes the URL as the
+        second positional arg; everything else takes it first. ``url=`` is honored."""
+        idx = 1 if method == "request" else 0
+        if len(node.args) > idx:
+            return node.args[idx]
         for kw in node.keywords:
             if kw.arg == "url":
                 return kw.value
