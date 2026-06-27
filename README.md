@@ -361,6 +361,12 @@ llm-seclint supports [SARIF](https://sarifweb.azurewebsites.net/) output for dir
     sarif_file: results.sarif
 ```
 
+The SARIF carries `properties.security-severity` on each rule (so Code Scanning
+renders and sorts severity), and **taint-confirmed** findings include
+`properties.taint_source` + `confirmed_dataflow` on the result — so you can
+filter the high-confidence "this really is LLM/user input reaching a sink"
+findings in the GitHub Security tab.
+
 ## Pre-commit Hook
 
 Add llm-seclint to your `.pre-commit-config.yaml`:
