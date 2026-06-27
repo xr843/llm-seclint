@@ -90,8 +90,10 @@ class PromptConcatInjectionRule(Rule):
     rule_id = "LS002"
     rule_name = "prompt-concat-injection"
     severity = Severity.HIGH
-    # Heuristic: infers "prompt" + "user input" from string content / variable
-    # names, so it over-reports. Off by default; enable with --experimental.
+    # Experimental: prompt injection's dominant pattern is a function parameter
+    # flowing into a prompt, which intra-procedural taint cannot confirm, so the
+    # broad keyword/structural heuristic stays (off by default). When taint CAN
+    # confirm the dynamic content, the finding is annotated (enhancement-only).
     stability = "experimental"
     description = (
         "User-controlled input is concatenated directly into an LLM prompt. "
@@ -104,7 +106,7 @@ class PromptConcatInjectionRule(Rule):
         self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         findings: list[Finding] = []
-        visitor = _PromptInjectionVisitor(self, file_path, source_lines)
+        visitor = _PromptInjectionVisitor(self, file_path, source_lines, taint)
         visitor.visit(tree)
         findings.extend(visitor.findings)
         return findings
@@ -114,12 +116,45 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
     """AST visitor that detects prompt injection patterns."""
 
     def __init__(
-        self, rule: PromptConcatInjectionRule, file_path: Path, source_lines: list[str]
+        self,
+        rule: PromptConcatInjectionRule,
+        file_path: Path,
+        source_lines: list[str],
+        taint: object | None = None,
     ) -> None:
         self.rule = rule
         self.file_path = file_path
         self.source_lines = source_lines
+        self.taint = taint
         self.findings: list[Finding] = []
+
+    def _emit(
+        self,
+        node: ast.expr,
+        dynamic: ast.expr,
+        message: str,
+        fix_suggestion: str,
+    ) -> None:
+        """Emit a prompt-injection finding (the broad heuristic always fires).
+
+        When ``dynamic`` is taint-confirmed to carry LLM/user input, annotate the
+        finding as a confirmed dataflow (enhancement-only — the heuristic's
+        coverage is unchanged, taint just raises confidence on a subset)."""
+        src = self.rule._confirmed_taint([dynamic], self.taint)
+        full_message = message
+        if src:
+            full_message += f" — confirmed {src.upper()}→prompt dataflow"
+        self.findings.append(
+            self.rule._make_finding(
+                self.file_path,
+                node.lineno,
+                full_message,
+                self.source_lines,
+                col=node.col_offset,
+                fix_suggestion=fix_suggestion,
+                taint_source=src,
+            )
+        )
 
     def visit_Assign(self, node: ast.Assign) -> None:
         """Visit assignments to continue traversal into child nodes."""
@@ -143,18 +178,12 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
                 has_dynamic_value = True
 
         if has_static_prompt_keyword and has_dynamic_value:
-            self.findings.append(
-                self.rule._make_finding(
-                    self.file_path,
-                    node.lineno,
-                    "User input interpolated into prompt via f-string",
-                    self.source_lines,
-                    col=node.col_offset,
-                    fix_suggestion=(
-                        "Separate system prompts from user input. "
-                        "Pass user input as a distinct message role."
-                    ),
-                )
+            self._emit(
+                node,
+                node,
+                "User input interpolated into prompt via f-string",
+                "Separate system prompts from user input. "
+                "Pass user input as a distinct message role.",
             )
 
         self.generic_visit(node)
@@ -169,39 +198,27 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
 
             # Check if left side is a prompt-like string
             if self._is_prompt_string(node.left) and self._is_variable(node.right):
-                self.findings.append(
-                    self.rule._make_finding(
-                        self.file_path,
-                        node.lineno,
-                        "User input concatenated into prompt via + operator",
-                        self.source_lines,
-                        col=node.col_offset,
-                        fix_suggestion="Use separate message roles instead of string concatenation.",
-                    )
+                self._emit(
+                    node,
+                    node.right,
+                    "User input concatenated into prompt via + operator",
+                    "Use separate message roles instead of string concatenation.",
                 )
             elif self._is_variable(node.left) and self._is_prompt_string(node.right):
-                self.findings.append(
-                    self.rule._make_finding(
-                        self.file_path,
-                        node.lineno,
-                        "User input concatenated into prompt via + operator",
-                        self.source_lines,
-                        col=node.col_offset,
-                        fix_suggestion="Use separate message roles instead of string concatenation.",
-                    )
+                self._emit(
+                    node,
+                    node.left,
+                    "User input concatenated into prompt via + operator",
+                    "Use separate message roles instead of string concatenation.",
                 )
         elif isinstance(node.op, ast.Mod):
             # Check % formatting: "You are a bot. User says: %s" % user_input
             if self._is_prompt_string(node.left) and self._is_variable(node.right):
-                self.findings.append(
-                    self.rule._make_finding(
-                        self.file_path,
-                        node.lineno,
-                        "User input injected into prompt via % formatting",
-                        self.source_lines,
-                        col=node.col_offset,
-                        fix_suggestion="Use separate message roles instead of % string formatting.",
-                    )
+                self._emit(
+                    node,
+                    node.right,
+                    "User input injected into prompt via % formatting",
+                    "Use separate message roles instead of % string formatting.",
                 )
         self.generic_visit(node)
 
@@ -213,15 +230,11 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
             and node.func.attr == "format"
             and self._is_prompt_string(node.func.value)
         ):
-            self.findings.append(
-                self.rule._make_finding(
-                    self.file_path,
-                    node.lineno,
-                    "User input injected into prompt via .format()",
-                    self.source_lines,
-                    col=node.col_offset,
-                    fix_suggestion="Use separate message roles instead of string formatting.",
-                )
+            self._emit(
+                node,
+                node,
+                "User input injected into prompt via .format()",
+                "Use separate message roles instead of string formatting.",
             )
 
         # --- LangChain: PromptTemplate(template=f"...{var}...") ---
@@ -256,18 +269,12 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
             return
 
         if self._is_dynamic_string(template_arg):
-            self.findings.append(
-                self.rule._make_finding(
-                    self.file_path,
-                    node.lineno,
-                    "Dynamic content in LangChain PromptTemplate — potential prompt injection",
-                    self.source_lines,
-                    col=node.col_offset,
-                    fix_suggestion=(
-                        "Use LangChain template placeholders like {topic} instead of "
-                        "f-strings or concatenation in PromptTemplate."
-                    ),
-                )
+            self._emit(
+                node,
+                template_arg,
+                "Dynamic content in LangChain PromptTemplate — potential prompt injection",
+                "Use LangChain template placeholders like {topic} instead of "
+                "f-strings or concatenation in PromptTemplate.",
             )
 
     def _check_langchain_chat_prompt_template(self, node: ast.Call) -> None:
@@ -310,18 +317,12 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
                 and role_node.value.lower() == "system"
                 and self._is_dynamic_string(content_node)
             ):
-                self.findings.append(
-                    self.rule._make_finding(
-                        self.file_path,
-                        node.lineno,
-                        "Dynamic content in LangChain ChatPromptTemplate system message — potential prompt injection",
-                        self.source_lines,
-                        col=node.col_offset,
-                        fix_suggestion=(
-                            "Use LangChain template placeholders instead of "
-                            "f-strings in system messages."
-                        ),
-                    )
+                self._emit(
+                    node,
+                    content_node,
+                    "Dynamic content in LangChain ChatPromptTemplate system message — potential prompt injection",
+                    "Use LangChain template placeholders instead of "
+                    "f-strings in system messages.",
                 )
 
     def _check_langchain_human_message_template(self, node: ast.Call) -> None:
@@ -349,18 +350,12 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
 
         template_arg = node.args[0]
         if self._is_variable(template_arg) and not isinstance(template_arg, ast.Constant):
-            self.findings.append(
-                self.rule._make_finding(
-                    self.file_path,
-                    node.lineno,
-                    "Dynamic variable passed to HumanMessagePromptTemplate.from_template — potential prompt injection",
-                    self.source_lines,
-                    col=node.col_offset,
-                    fix_suggestion=(
-                        "Pass a static template string with {placeholders} instead of "
-                        "a dynamic variable."
-                    ),
-                )
+            self._emit(
+                node,
+                template_arg,
+                "Dynamic variable passed to HumanMessagePromptTemplate.from_template — potential prompt injection",
+                "Pass a static template string with {placeholders} instead of "
+                "a dynamic variable.",
             )
 
     # ------------------------------------------------------------------
@@ -416,18 +411,12 @@ class _PromptInjectionVisitor(ast.NodeVisitor):
                 and content_val is not None
                 and self._is_dynamic_string(content_val)
             ):
-                self.findings.append(
-                    self.rule._make_finding(
-                        self.file_path,
-                        node.lineno,
-                        "Dynamic content in LiteLLM system message — potential prompt injection",
-                        self.source_lines,
-                        col=node.col_offset,
-                        fix_suggestion=(
-                            "Use a static system message. Pass user input via "
-                            "the user role message instead."
-                        ),
-                    )
+                self._emit(
+                    node,
+                    content_val,
+                    "Dynamic content in LiteLLM system message — potential prompt injection",
+                    "Use a static system message. Pass user input via "
+                    "the user role message instead.",
                 )
 
     # ------------------------------------------------------------------

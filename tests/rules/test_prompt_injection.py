@@ -308,3 +308,34 @@ class TestTruePositiveRetention:
         code = 'prompt = "Your role is {role}. Context: {ctx}".format(role=r, ctx=c)'
         findings = run_rule_on_code(_rule(), code)
         assert len(findings) >= 1
+
+
+class TestLs002TaintEnhancement:
+    """LS002 stays experimental + broad, but annotates the taint-confirmed subset."""
+
+    def test_confirmed_user_to_prompt(self) -> None:
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = (
+            "name = request.args.get('n')\n"
+            'prompt = f"You are a bot. User says: {name}"\n'
+        )
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS002"][0]
+        assert f.taint_source == "user"
+        assert "confirmed" in f.message.lower()
+
+    def test_broad_heuristic_still_fires_unconfirmed(self) -> None:
+        # A prompt built from an unconfirmable param is still reported (no note),
+        # so the heuristic's coverage is unchanged by taint.
+        from pathlib import Path
+
+        from llm_seclint.analyzers.python_analyzer import PythonAnalyzer
+
+        code = 'prompt = f"You are a bot. User says: {user_msg}"\n'
+        findings, _ = PythonAnalyzer([_rule()]).analyze(code, Path("app.py"))
+        f = [x for x in findings if x.rule_id == "LS002"][0]
+        assert f.taint_source == ""
+        assert "confirmed" not in f.message.lower()
