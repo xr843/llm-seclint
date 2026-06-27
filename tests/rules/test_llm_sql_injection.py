@@ -77,3 +77,15 @@ class TestLs003Graduated:
         # to confirm, so it stays silent.
         code = "cursor.execute(f\"SELECT * FROM users WHERE id = '{x}'\")"
         assert run_rule_on_code(_rule(), code) == []
+
+
+class TestLs003FormatEdgeCases:
+    def test_percent_tuple_user(self) -> None:
+        f = _scan(_USER + "cursor.execute(\"SELECT * FROM u WHERE id = %s\" % (raw,))\n")
+        assert len(f) == 1
+        assert f[0].taint_source == "user"
+
+    def test_format_kwarg_user(self) -> None:
+        f = _scan(_USER + 'cursor.execute("SELECT * FROM u WHERE n = {n}".format(n=raw))\n')
+        assert len(f) == 1
+        assert f[0].taint_source == "user"

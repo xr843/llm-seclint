@@ -251,3 +251,14 @@ def test_user_to_sink_confirmed_via_rule() -> None:
     f = [x for x in findings if x.rule_id == "LS006"][0]
     assert f.taint_source == "user"
     assert "USER→sink" in f.message
+
+
+def test_percent_tuple_and_format_kwargs_propagate() -> None:
+    # Regression (review): printf %-tuple RHS and .format(**kwargs) must propagate.
+    base = "u = request.args.get('q')\n"
+    for build in [
+        'q = "x %s" % (u,)',          # single-element tuple
+        'q = "x %s %s" % (a, u)',     # multi-element tuple
+        'q = "x {n}".format(n=u)',    # keyword arg
+    ]:
+        assert _analyze(base + build + "\nuse(q)\n") == USER, build
