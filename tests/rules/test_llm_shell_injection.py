@@ -98,11 +98,73 @@ class TestLlmShellInjection:
         assert len(findings) == 1
         assert "shell=True" in findings[0].message
 
-    def test_list_with_dynamic_element_flags(self) -> None:
-        """A list containing a dynamic element should trigger."""
+    def test_list_with_dynamic_arg_is_safe(self) -> None:
+        """A dynamic argument to a fixed non-shell program is safe without
+        shell=True: the argument is passed literally, so no shell injection."""
         code = 'subprocess.run(["cmd", user_input])'
         findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_list_dynamic_program_is_safe(self) -> None:
+        """A dynamic program name in argv form without shell=True is not shell
+        injection -- it's the shape the recommended allowlist pattern uses."""
+        code = 'subprocess.run([command_name], capture_output=True)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_list_shell_interpreter_dynamic_arg_flags(self) -> None:
+        """["bash", "-c", x] with a dynamic arg is command injection even
+        without shell=True, because bash parses the argument as a command."""
+        code = 'subprocess.run(["bash", "-c", user_input])'
+        findings = run_rule_on_code(_rule(), code)
         assert len(findings) == 1
+
+    def test_list_shell_interpreter_static_is_safe(self) -> None:
+        """["bash", "-c", "echo hi"] with only constants is safe."""
+        code = 'subprocess.run(["bash", "-c", "echo hi"])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_list_code_interpreter_dynamic_arg_flags(self) -> None:
+        """["python", "-c", x] runs LLM output as code -- must flag even
+        without shell=True (regression guard: argv-list narrowing must not
+        silently drop interpreter execution)."""
+        for prog in ("python", "python3", "node", "perl", "ruby", "php"):
+            code = f'subprocess.run(["{prog}", "-c", llm_output])'
+            findings = run_rule_on_code(_rule(), code)
+            assert len(findings) == 1, prog
+
+    def test_list_interpreter_through_wrapper_flags(self) -> None:
+        """["env", "bash", "-c", x] -- a wrapper prefix must not evade the
+        interpreter check."""
+        code = 'subprocess.run(["env", "bash", "-c", user_input])'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_tuple_argv_static_is_safe(self) -> None:
+        """A tuple argv of constants is the same safe pattern as a list."""
+        code = 'subprocess.run(("ls", "-la"))'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_tuple_argv_dynamic_arg_is_safe(self) -> None:
+        """A dynamic arg to a fixed non-shell program is safe in tuple form too."""
+        code = 'subprocess.run(("cmd", user_input))'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 0
+
+    def test_tuple_interpreter_dynamic_arg_flags(self) -> None:
+        """Tuple argv invoking an interpreter with a dynamic arg still flags."""
+        code = 'subprocess.run(("bash", "-c", user_input))'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+
+    def test_list_shell_truthy_int_flags(self) -> None:
+        """shell=1 is truthy and enables the shell -- a dynamic arg must flag."""
+        code = 'subprocess.run(["ls", user_input], shell=1)'
+        findings = run_rule_on_code(_rule(), code)
+        assert len(findings) == 1
+        assert "shell=True" in findings[0].message
 
     def test_safe_check_output_list_literal(self) -> None:
         """subprocess.check_output(["ls"]) is safe."""

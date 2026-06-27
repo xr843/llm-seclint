@@ -158,7 +158,6 @@ def _in_dependencies_section(source_lines: list[str], lineno_0: int) -> bool:
     3. Lines inside [project.optional-dependencies.*] sections
     """
     # Walk backwards to find context.
-    in_array = False
     for i in range(lineno_0, -1, -1):
         stripped = source_lines[i].strip()
 

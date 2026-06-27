@@ -1,9 +1,10 @@
 # llm-seclint
 
-[![PyPI version](https://img.shields.io/pypi/v/llm-seclint.svg)](https://pypi.org/project/llm-seclint/)
 [![CI](https://github.com/xr843/llm-seclint/actions/workflows/ci.yml/badge.svg)](https://github.com/xr843/llm-seclint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+
+> **Status: pre-release (v0.1.0, alpha).** Not yet published to PyPI — install from source (see [Quick Start](#quick-start)). The API and rule IDs may change before v1.0.
 
 **Find LLM security vulnerabilities before they ship.**
 
@@ -27,8 +28,10 @@ Existing tools like [garak](https://github.com/leondz/garak), [LLM Guard](https:
 
 ## Quick Start
 
+Install from source (a PyPI package is planned but not yet published):
+
 ```bash
-pip install llm-seclint
+pip install git+https://github.com/xr843/llm-seclint.git
 ```
 
 Scan your project:
@@ -66,19 +69,24 @@ Source Code → AST Parsing → 9 Security Rules → Findings Report
 
 llm-seclint parses your Python files into Abstract Syntax Trees and applies targeted security rules that understand LLM-specific data flows. No model access required, no runtime overhead -- just fast, deterministic analysis.
 
-## Real-World Results
+## Where These Rules Come From
 
-llm-seclint has found real vulnerabilities in production codebases:
+Every rule maps to a real insecure pattern I found while **manually auditing**
+popular open-source LLM projects. Those audits are what motivated building
+llm-seclint — to catch the same classes of issue automatically, before they
+ship. Fixes were proposed upstream; several were declined in favor of the
+maintainers' own approaches, but the underlying patterns are exactly what the
+rules now detect.
 
-| Project | Stars | Finding | Status |
-|---------|-------|---------|--------|
-| [Dify](https://github.com/langgenius/dify) | 100k+ | Unsafe `pickle.loads()` on database data (LS006) | Reported |
-| [Dify](https://github.com/langgenius/dify) | 100k+ | `render_template_string()` SSTI in UNSAFE mode (LS007) | Reported |
-| [Dify](https://github.com/langgenius/dify) | 100k+ | 54 SQL f-string injections in VDB drivers (LS003) | Reported |
-| [LiteLLM](https://github.com/BerriAI/litellm) | 20k+ | `exec()` RCE in custom code guardrails (LS006) | [PR #24455](https://github.com/BerriAI/litellm/pull/24455) |
-| [LiteLLM](https://github.com/BerriAI/litellm) | 20k+ | Jinja2 SSTI in 4 prompt managers (LS007) | [PR #24458](https://github.com/BerriAI/litellm/pull/24458) |
-| [vllm](https://github.com/vllm-project/vllm) | 45k+ | `eval()` on LLM output in example code (LS006) | [PR #37939](https://github.com/vllm-project/vllm/pull/37939) |
-| [crewAI](https://github.com/crewAIInc/crewAI) | 30k+ | XXE exception handling + `exec()` in code interpreter | [PR #5005](https://github.com/crewAIInc/crewAI/pull/5005) |
+| Project | Pattern found | Rule | Upstream PR |
+|---------|---------------|------|-------------|
+| [Dify](https://github.com/langgenius/dify) (100k★) | Unsafe `pickle.loads()` on database data | LS006 | found in audit |
+| [Dify](https://github.com/langgenius/dify) (100k★) | `render_template_string()` SSTI in UNSAFE mode | LS007 | found in audit |
+| [Dify](https://github.com/langgenius/dify) (100k★) | SQL f-string interpolation in VDB drivers | LS003 | found in audit |
+| [LiteLLM](https://github.com/BerriAI/litellm) (20k★) | `exec()` in custom code guardrails | LS006 | [#24455](https://github.com/BerriAI/litellm/pull/24455) (closed) |
+| [LiteLLM](https://github.com/BerriAI/litellm) (20k★) | Jinja2 SSTI in prompt managers | LS007 | [#24458](https://github.com/BerriAI/litellm/pull/24458) (closed) |
+| [vllm](https://github.com/vllm-project/vllm) (45k★) | `eval()` on LLM output in example code | LS006 | [#37939](https://github.com/vllm-project/vllm/pull/37939) (closed) |
+| [crewAI](https://github.com/crewAIInc/crewAI) (30k★) | XXE in XML parsing (use `defusedxml`) | LS008 | [#5005](https://github.com/crewAIInc/crewAI/pull/5005) (closed) |
 
 ## What It Detects
 

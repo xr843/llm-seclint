@@ -102,8 +102,8 @@ class XXERule(Rule):
                 full_name = XXERule._reconstruct_dotted(func)
                 return (
                     f"{full_name}()",
-                    f"Use defusedxml instead. "
-                    f"Install defusedxml and replace with defusedxml equivalents.",
+                    "Use defusedxml instead. "
+                    "Install defusedxml and replace with defusedxml equivalents.",
                 )
 
         return None

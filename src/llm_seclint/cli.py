@@ -11,9 +11,8 @@ from rich.console import Console
 from rich.text import Text
 
 from llm_seclint import __version__
-from llm_seclint.config import ScanConfig, load_config
+from llm_seclint.config import load_config
 from llm_seclint.core.engine import ScanEngine
-from llm_seclint.core.severity import Severity
 from llm_seclint.formatters.json_fmt import JsonFormatter
 from llm_seclint.formatters.sarif import SarifFormatter
 from llm_seclint.formatters.text import TextFormatter

@@ -19,6 +19,17 @@ _DANGEROUS_CALLS: dict[str, set[str]] = {
 # Standalone dangerous function names (when imported directly)
 _DANGEROUS_STANDALONE = {"system", "popen"}
 
+# Programs that execute a following argument as code/commands, so a dynamic
+# argument is command/code injection even in argv form without shell=True
+# (e.g. ["bash", "-c", x], ["python", "-c", x], ["node", "-e", x]).
+_CODE_INTERPRETERS = {
+    # shells
+    "sh", "bash", "zsh", "dash", "ksh", "csh", "tcsh", "fish", "ash", "busybox",
+    "pwsh", "powershell",
+    # language interpreters that take an inline-code flag (-c / -e / -r)
+    "python", "python2", "python3", "node", "nodejs", "perl", "ruby", "php",
+}
+
 
 # File path patterns indicating CLI/build/dev tooling (not production LLM code)
 _CLI_BUILD_DIRS = ("/cli/", "/tools/", "/scripts/")
@@ -72,27 +83,33 @@ class LlmShellInjectionRule(Rule):
             # For subprocess functions, also check for shell=True
             if is_subprocess:
                 has_shell_true = any(
-                    isinstance(kw.value, ast.Constant)
-                    and kw.value.value is True
-                    and kw.arg == "shell"
+                    kw.arg == "shell"
+                    and isinstance(kw.value, ast.Constant)
+                    and bool(kw.value.value)
                     for kw in node.keywords
                 )
 
                 if node.args:
                     cmd_arg = node.args[0]
-                    is_list_literal = isinstance(cmd_arg, ast.List)
-                    is_dynamic = self._is_dynamic(cmd_arg)
 
-                    # Safe pattern: list literal of constants without shell=True
-                    # e.g. subprocess.run(["ls", "-la"]) or
-                    #      subprocess.run(["ls", "-la"], shell=False)
-                    # This is the officially recommended Python pattern.
-                    if is_list_literal and not has_shell_true and not is_dynamic:
-                        continue
-
-                    # shell=True with a list literal is suspicious misuse
-                    # (Python joins list elements into a string for the shell)
-                    should_flag = is_dynamic or (has_shell_true and is_list_literal)
+                    if isinstance(cmd_arg, (ast.List, ast.Tuple)):
+                        # argv form (list or tuple). Without shell=True the shell
+                        # never parses the arguments, so shell injection is
+                        # structurally impossible -- this is the OWASP/Python
+                        # recommended mitigation (pair it with an allowlist to
+                        # also bound which program runs). Only flag the misuse
+                        # cases: shell=True combined with an argv list (Python
+                        # joins it into a string for the shell), or an argv list
+                        # that itself invokes a code interpreter with a dynamic
+                        # argument, e.g. ["bash", "-c", user_input] or
+                        # ["python", "-c", user_input].
+                        should_flag = has_shell_true or self._argv_invokes_interpreter(
+                            cmd_arg
+                        )
+                    else:
+                        # Non-list first arg (a string or variable command):
+                        # dangerous when dynamic, especially with shell=True.
+                        should_flag = self._is_dynamic(cmd_arg)
 
                     if should_flag:
                         msg = f"Dynamic output passed to {func_display}"
@@ -148,6 +165,30 @@ class LlmShellInjectionRule(Rule):
             if node.func.id in _DANGEROUS_STANDALONE:
                 return f"{node.func.id}()", False
         return None
+
+    @staticmethod
+    def _argv_invokes_interpreter(node: ast.List | ast.Tuple) -> bool:
+        """Return True for argv like ``["bash", "-c", user_input]`` or
+        ``["python", "-c", user_input]`` (also through wrappers such as
+        ``["env", "bash", "-c", user_input]``).
+
+        When a code interpreter appears among the leading constant elements and a
+        later element is dynamic, the call is command/code injection even without
+        ``shell=True`` -- the interpreter parses the dynamic argument as code.
+        Scanning all leading constants (not just argv[0]) covers wrapper prefixes
+        like ``env``/``sudo``/``nice``.
+        """
+        seen_interpreter = False
+        for el in node.elts:
+            if isinstance(el, ast.Constant) and isinstance(el.value, str):
+                program = el.value.rsplit("/", 1)[-1].lower()
+                if program in _CODE_INTERPRETERS:
+                    seen_interpreter = True
+            elif not isinstance(el, ast.Constant):
+                # A dynamic element after a known interpreter is the injected code.
+                if seen_interpreter:
+                    return True
+        return False
 
     @staticmethod
     def _is_dynamic(node: ast.expr) -> bool:

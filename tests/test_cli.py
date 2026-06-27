@@ -36,13 +36,12 @@ def test_scan_vulnerable_example() -> None:
 
 
 def test_scan_secure_example() -> None:
+    # secure_app.py documents the recommended fix for every rule, so a clean
+    # scan (exit code 0) is the contract: any finding here is a false positive.
     runner = CliRunner()
     examples_dir = Path(__file__).parent.parent / "examples"
     result = runner.invoke(main, ["scan", str(examples_dir / "secure_app.py")])
-    # secure_app might still have some generic findings (open() with variable),
-    # but should have zero critical hardcoded key findings
-    # The important thing is it runs without error
-    assert result.exit_code in (0, 1)
+    assert result.exit_code == 0
 
 
 def test_scan_json_format(tmp_path: Path) -> None:

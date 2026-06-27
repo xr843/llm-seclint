@@ -112,5 +112,5 @@ def _build_help_uri(finding: Finding) -> str:
         num = finding.cwe_id.replace("CWE-", "")
         return f"https://cwe.mitre.org/data/definitions/{num}.html"
     if finding.owasp_llm:
-        return f"https://owasp.org/www-project-top-10-for-large-language-model-applications/"
+        return "https://owasp.org/www-project-top-10-for-large-language-model-applications/"
     return ""
