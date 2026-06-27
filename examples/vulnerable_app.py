@@ -28,13 +28,20 @@ def get_chat_response(user_input: str) -> str:
     return response.choices[0].message.content
 
 
-def search_database(llm_response: str) -> list:
-    """Search database using LLM-generated query."""
+def search_database(prompt: str) -> list:
+    """Search the database using an LLM-generated query value."""
     conn = sqlite3.connect("app.db")
     cursor = conn.cursor()
 
-    # LS003: LLM output in SQL query
-    cursor.execute(f"SELECT * FROM products WHERE name LIKE '%{llm_response}%'")
+    # The LLM's output flows into the SQL query within this function, so the
+    # taint engine confirms the LLM->SQL injection (LS003, taint-gated).
+    response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+    )
+    term = response.choices[0].message.content
+    # LS003: confirmed LLM output in SQL query
+    cursor.execute(f"SELECT * FROM products WHERE name LIKE '%{term}%'")
     return cursor.fetchall()
 
 

@@ -53,7 +53,7 @@ Scanned in 0.03s
 ```
 
 By default only **stable** (low false-positive) rules run. Add `--experimental`
-to also enable the heuristic rules (LS002, LS003) — see [Rule stability](#rule-stability).
+to also enable the heuristic rule LS002 — see [Rule stability](#rule-stability).
 
 ## How It Works
 
@@ -75,12 +75,13 @@ llm-seclint parses your Python files into Abstract Syntax Trees and applies targ
 ### Confirmed dataflow (taint analysis)
 
 Beyond matching dangerous sinks, llm-seclint runs a lightweight **intra-procedural
-taint engine** that tracks values returned by an LLM API call (`openai`/`litellm`/
-Anthropic completions) as they flow through assignments, attribute/subscript
-chains, and string building within a function. When such a value reaches a sink,
-the finding is annotated **`confirmed LLM→sink dataflow`** and carries a
-structured `taint_source` field — so you can tell a real LLM-output-to-`eval()`
-flow from a merely-dynamic argument:
+taint engine** that tracks untrusted values — both **LLM output** (`openai`/
+`litellm`/Anthropic completions) and **user input** (`input()`, `sys.argv`, Flask
+`request.*`) — as they flow through assignments, attribute/subscript chains, and
+string building within a function. When such a value reaches a sink, the finding
+is annotated **`confirmed LLM→sink`** / **`USER→sink dataflow`** and carries a
+structured `taint_source` field — so you can tell a real untrusted-input-to-
+`eval()` flow from a merely-dynamic argument:
 
 ```python
 resp = openai.chat.completions.create(model="gpt-4", messages=msgs)
@@ -91,8 +92,8 @@ eval(code)   # LS006 — confirmed LLM→sink dataflow
 Today this confirmation drives every sink rule — **LS004** (shell), **LS005**
 (path), **LS006** (`eval`/`exec`/`pickle`), **LS007** (SSTI) and **LS008** (XXE);
 it never suppresses or downgrades an existing finding (a merely-dynamic argument
-is still reported). Adding user-input sources and letting the experimental rules
-(LS002/LS003) graduate to stable is on the [roadmap](#roadmap). Scope is
+is still reported). User-input sources now also confirm, and LS003 has graduated to stable;
+letting LS002 graduate the same way is on the [roadmap](#roadmap). Scope is
 deliberately bounded: single-function, single-pass (no cross-function or
 control-flow-graph precision yet).
 
@@ -121,7 +122,7 @@ rules now detect.
 |------|------|----------|-----------|-------------|
 | LS001 | `hardcoded-api-key` | CRITICAL | stable | Hardcoded API keys for LLM providers (OpenAI, Anthropic, xAI, etc.) |
 | LS002 | `prompt-concat-injection` | HIGH | experimental | User input concatenated into LLM prompts via f-strings, `+`, or `.format()` |
-| LS003 | `llm-to-sql-injection` | CRITICAL | experimental | LLM output interpolated into SQL queries |
+| LS003 | `llm-to-sql-injection` | CRITICAL | stable | LLM/user input interpolated into SQL queries (taint-confirmed) |
 | LS004 | `llm-to-shell-injection` | CRITICAL | stable | LLM output passed to `subprocess` / `os.system` |
 | LS005 | `llm-to-path-traversal` | HIGH | stable | LLM output used as file paths |
 | LS006 | `insecure-deserialization` | HIGH | stable | `eval` / `exec` / `pickle` / unsafe YAML on dynamic input |
@@ -133,16 +134,17 @@ rules now detect.
 
 Rules are graded by how reliably they distinguish a real issue from noise:
 
-- **stable** — sink-driven or pattern-unique (a hardcoded provider key, `eval()`
-  on dynamic input, XXE-prone parsing). Low false-positive. **On by default.**
+- **stable** — sink-driven, pattern-unique, or **taint-confirmed** (a hardcoded
+  provider key, `eval()` on dynamic input, XXE-prone parsing, or a value the
+  [taint engine](#confirmed-dataflow-taint-analysis) traces from LLM/user input
+  into SQL). Low false-positive. **On by default.**
 - **experimental** — relies on naming/keyword heuristics to *guess* whether data
-  is LLM- or user-derived (LS002 keys off words like "you are"; LS003 flags any
-  dynamic SQL f-string regardless of source, and overlaps Bandit's B608). Higher
+  is LLM- or user-derived (LS002 keys off words like "you are"). Higher
   false-positive, so **off unless you pass `--experimental`**.
 
 This keeps the default scan high-signal. Run `llm-seclint rules` to see each
-rule's stability. A precise data-flow (taint) engine that would let LS002/LS003
-graduate to stable is tracked on the [roadmap](#roadmap).
+rule's stability. LS003 graduated to stable once the taint engine could confirm
+the data source; the same path for LS002 is tracked on the [roadmap](#roadmap).
 
 ### Examples
 
@@ -324,7 +326,7 @@ llm-seclint ships with two scan profiles:
 ### Experimental rules
 
 By default only [stable](#rule-stability) rules run. Add `--experimental` to also
-enable the heuristic rules (LS002, LS003), or set `include_experimental: true` in
+enable the heuristic rule LS002, or set `include_experimental: true` in
 your config file:
 
 ```bash
@@ -414,7 +416,7 @@ Please open an issue first to discuss significant changes.
 ## Roadmap
 
 - **v0.2**: Intra-procedural taint tracking (real LLM/user → sink data-flow) so
-  the [experimental](#rule-stability) rules (LS002/LS003) can graduate to stable
+  the [experimental](#rule-stability) rule LS002 can graduate to stable
   with far fewer false positives
 - **v0.3**: JavaScript/TypeScript analyzer (LangChain.js, Vercel AI SDK)
 - **v0.4**: Framework-specific rules (LangChain, LlamaIndex, Semantic Kernel)

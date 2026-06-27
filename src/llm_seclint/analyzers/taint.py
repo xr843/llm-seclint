@@ -143,12 +143,12 @@ class _ScopeTaint:
         return None
 
     def _compute_call(self, expr: ast.Call) -> str | None:
-        # "...".format(tainted) or tainted_str.format(...)
+        # "...".format(tainted) / tainted_str.format(...) / .format(n=tainted)
         if isinstance(expr.func, ast.Attribute) and expr.func.attr == "format":
             recv = self._compute(expr.func.value)
             if recv:
                 return recv
-            for arg in expr.args:
+            for arg in (*expr.args, *(kw.value for kw in expr.keywords)):
                 src = self._compute(arg)
                 if src:
                     return src
@@ -164,7 +164,18 @@ class _ScopeTaint:
 
     def _compute_binop(self, expr: ast.BinOp) -> str | None:
         if isinstance(expr.op, (ast.Add, ast.Mod)):
-            return self._compute(expr.left) or self._compute(expr.right)
+            left = self._compute(expr.left)
+            if left:
+                return left
+            # "...%s..." % (tainted,) — the printf-style RHS is often a tuple.
+            right = expr.right
+            if isinstance(right, (ast.Tuple, ast.List)):
+                for elt in right.elts:
+                    src = self._compute(elt)
+                    if src:
+                        return src
+                return None
+            return self._compute(right)
         return None
 
 
