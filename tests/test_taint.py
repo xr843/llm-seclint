@@ -123,3 +123,17 @@ def test_taint_is_scoped_per_function() -> None:
     ]
     assert ctx.is_tainted(uses[0].args[0]) == LLM  # inside a()
     assert ctx.is_tainted(uses[1].args[0]) is None  # inside b(), param x
+
+
+# --- Integration seam (Task 5) ---
+
+
+def test_rule_check_accepts_taint_kwarg() -> None:
+    from pathlib import Path
+
+    from llm_seclint.rules.python.hardcoded_keys import HardcodedApiKeyRule
+
+    rule = HardcodedApiKeyRule()
+    tree = ast.parse("x = 1\n")
+    # Must accept the taint kwarg without error and behave normally.
+    assert rule.check(tree, Path("a.py"), ["x = 1"], taint=None) == []

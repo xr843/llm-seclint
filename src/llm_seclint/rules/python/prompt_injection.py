@@ -101,7 +101,7 @@ class PromptConcatInjectionRule(Rule):
     owasp_llm = "LLM01: Prompt Injection"
 
     def check(
-        self, tree: ast.Module, file_path: Path, source_lines: list[str]
+        self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         findings: list[Finding] = []
         visitor = _PromptInjectionVisitor(self, file_path, source_lines)

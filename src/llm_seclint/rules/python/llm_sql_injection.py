@@ -34,7 +34,7 @@ class LlmSqlInjectionRule(Rule):
     owasp_llm = "LLM02: Insecure Output Handling"
 
     def check(
-        self, tree: ast.Module, file_path: Path, source_lines: list[str]
+        self, tree: ast.Module, file_path: Path, source_lines: list[str], taint: object | None = None
     ) -> list[Finding]:
         findings: list[Finding] = []
 
